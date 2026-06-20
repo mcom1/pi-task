@@ -15,7 +15,8 @@
     "dist",
     "agents",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -49,5 +50,13 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/heyhuynhgiabuu/pi-task.git"
+  },
+  "bugs": {
+    "url": "https://github.com/heyhuynhgiabuu/pi-task/issues"
+  },
+  "homepage": "https://github.com/heyhuynhgiabuu/pi-task#readme"
 }
