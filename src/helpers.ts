@@ -188,11 +188,40 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
+export type TmuxSplitDirection = "-h" | "-v";
+
+export function chooseTmuxSplitDirection(
+  paneWidth: number,
+  paneHeight: number,
+): TmuxSplitDirection {
+  const minSideBySideWidth = 160;
+  const minStackedHeight = 24;
+
+  if (Number.isFinite(paneWidth) && paneWidth >= minSideBySideWidth) {
+    return "-h";
+  }
+  if (Number.isFinite(paneHeight) && paneHeight >= minStackedHeight) {
+    return "-v";
+  }
+  return "-h";
+}
+
 export function buildTmuxSplitWindowArgs(
   cwd: string,
   command: string,
+  direction: TmuxSplitDirection = "-h",
+  targetPane?: string | null,
 ): string[] {
-  return ["split-window", "-h", "-P", "-F", "#{pane_id}", "-c", cwd, command];
+  const args = [
+    "split-window",
+    direction,
+    "-P",
+    "-F",
+    "#{pane_id}",
+  ];
+  if (targetPane) args.push("-t", targetPane);
+  args.push("-c", cwd, command);
+  return args;
 }
 
 export interface BackgroundReceiptInput {

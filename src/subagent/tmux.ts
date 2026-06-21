@@ -3,6 +3,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { buildTmuxSplitWindowArgs, chooseTmuxSplitDirection } from "../helpers.js";
 
 export function tmuxCmd(args: string[]): string {
   return execFileSync("tmux", args, {
@@ -37,21 +38,36 @@ export function getCurrentPaneId(): string | null {
   }
 }
 
+export function getCurrentPaneSize(
+  targetPane?: string | null,
+): { width: number; height: number } | null {
+  try {
+    const args = ["display-message", "-p", "#{pane_width} #{pane_height}"];
+    if (targetPane) args.splice(1, 0, "-t", targetPane);
+    const raw = tmuxCmd(args);
+    const [widthRaw, heightRaw] = raw.trim().split(/\s+/, 2);
+    const width = Number(widthRaw);
+    const height = Number(heightRaw);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+    return { width, height };
+  } catch {
+    return null;
+  }
+}
+
 export function splitWindowPane(
   cwd: string,
   command: string,
 ): { paneId: string; originalPane: string | null } {
   const originalPane = getCurrentPaneId();
-  const paneId = tmuxCmd([
-    "split-window",
-    "-h",
-    "-P",
-    "-F",
-    "#{pane_id}",
-    "-c",
-    cwd,
-    command,
-  ]);
+  const paneSize = getCurrentPaneSize(originalPane);
+  const direction = chooseTmuxSplitDirection(
+    paneSize?.width ?? 0,
+    paneSize?.height ?? 0,
+  );
+  const paneId = tmuxCmd(
+    buildTmuxSplitWindowArgs(cwd, command, direction, originalPane),
+  );
   return { paneId, originalPane };
 }
 

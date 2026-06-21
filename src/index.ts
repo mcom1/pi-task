@@ -34,6 +34,7 @@ import {
   TASK_RESULT_XML_INSTRUCTIONS,
   TASK_TOOL_DESCRIPTION,
   buildTmuxSplitWindowArgs,
+  chooseTmuxSplitDirection,
   formatBackgroundReceipt,
   buildPiArgs,
   parseResultXml,
@@ -162,12 +163,36 @@ function getCurrentPaneId(): string | null {
   }
 }
 
+function getCurrentPaneSize(
+  targetPane?: string | null,
+): { width: number; height: number } | null {
+  try {
+    const args = ["display-message", "-p", "#{pane_width} #{pane_height}"];
+    if (targetPane) args.splice(1, 0, "-t", targetPane);
+    const raw = tmuxCmd(args);
+    const [widthRaw, heightRaw] = raw.trim().split(/\s+/, 2);
+    const width = Number(widthRaw);
+    const height = Number(heightRaw);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+    return { width, height };
+  } catch {
+    return null;
+  }
+}
+
 function splitWindowPane(
   cwd: string,
   command: string,
 ): { paneId: string; originalPane: string | null } {
   const originalPane = getCurrentPaneId();
-  const paneId = tmuxCmd(buildTmuxSplitWindowArgs(cwd, command));
+  const paneSize = getCurrentPaneSize(originalPane);
+  const direction = chooseTmuxSplitDirection(
+    paneSize?.width ?? 0,
+    paneSize?.height ?? 0,
+  );
+  const paneId = tmuxCmd(
+    buildTmuxSplitWindowArgs(cwd, command, direction, originalPane),
+  );
   return { paneId, originalPane };
 }
 

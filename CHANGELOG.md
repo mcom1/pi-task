@@ -4,6 +4,29 @@ All notable changes to `@heyhuynhgiabuu/pi-task` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] — 2026-06-21
+
+### Fixed
+
+- Detect the current tmux pane size before launching a task pane and choose
+  the split direction based on available space: side-by-side for wide panes,
+  stacked for narrow panes.
+- Target the exact pane that was measured when running `tmux split-window`,
+  avoiding focus races where a different pane could be split.
+- Apply the same pane-size-aware split logic to the subagent tmux helper.
+
+### Verified
+
+- `npm test` passes
+- `npm run typecheck` passes
+- `npm run build` passes
+- `npm run smoke` passes
+- `npm pack --dry-run` succeeds
+- Real tmux integration check passed for narrow `120x40` and wide `200x40`
+  sessions.
+
+[0.1.4]: https://github.com/heyhuynhgiabuu/pi-task/releases/tag/v0.1.4
+
 ## [0.1.3] — 2026-06-21
 
 ### Fixed

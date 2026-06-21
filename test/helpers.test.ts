@@ -15,6 +15,7 @@ import {
   parseIdTimestamp,
   shellQuote,
   buildTmuxSplitWindowArgs,
+  chooseTmuxSplitDirection,
   formatBackgroundReceipt,
   TASK_BACKGROUND_DEFAULT,
   TASK_RESULT_XML_INSTRUCTIONS,
@@ -866,19 +867,49 @@ import {
 // ─── Task tool hardening contracts ───────────────────────────────────────────
 
 {
+  const t = "chooseTmuxSplitDirection allocates narrow panes vertically";
+  assert.equal(chooseTmuxSplitDirection(120, 40), "-v", t);
+}
+
+{
+  const t = "chooseTmuxSplitDirection allocates wide panes horizontally";
+  assert.equal(chooseTmuxSplitDirection(200, 40), "-h", t);
+}
+
+{
   const t = "buildTmuxSplitWindowArgs starts task command directly, without send-keys";
   const command = "cd '/tmp/safe path' && echo $(must-not-run) && echo `nope`";
   assert.deepEqual(
-    buildTmuxSplitWindowArgs("/tmp/safe path", command),
+    buildTmuxSplitWindowArgs("/tmp/safe path", command, "-v"),
     [
       "split-window",
-      "-h",
+      "-v",
       "-P",
       "-F",
       "#{pane_id}",
       "-c",
       "/tmp/safe path",
       command,
+    ],
+    t,
+  );
+}
+
+{
+  const t = "buildTmuxSplitWindowArgs targets the pane that was measured";
+  assert.deepEqual(
+    buildTmuxSplitWindowArgs("/work", "echo ok", "-h", "%7"),
+    [
+      "split-window",
+      "-h",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%7",
+      "-c",
+      "/work",
+      "echo ok",
     ],
     t,
   );
