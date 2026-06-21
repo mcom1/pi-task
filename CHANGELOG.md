@@ -1,23 +1,47 @@
 # Changelog
 
-## v0.1.0 - Initial release
+All notable changes to `@heyhuynhgiabuu/pi-task` are documented here.
+The format is based on [Keep a Changelog](https://keepachangelog.com/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
-Initial public release of `@heyhuynhgiabuu/pi-task`.
+## [0.1.1] — 2025
 
-### Added
+### Fixed
 
-- `task` tool for delegating work to specialized Pi subagents.
-- Foreground tasks that return results directly to the current parent turn.
-- Background tasks with task widget progress and automatic parent follow-up on completion.
-- Tmux backend for observable subagent panes.
-- SDK fallback when tmux is unavailable.
-- Bundled starter agents: `scout`, `explore`, `planner`, `reviewer`, `vision`, and `worker`.
-- Project/user agent override support via `.pi/agents/*.md` and `~/.pi/agents/*.md`.
-- Agent frontmatter support for `model`, `thinking`, `tools`, and `disallowed_tools`.
-- Tool allowlist filtering against tools registered in the parent Pi session.
-- Clean TUI widget with spinner header and per-tool status rows.
+- `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui` moved
+  from `peerDependencies` and `devDependencies` to `dependencies`. They
+  are runtime imports (the dist imports `@earendil-works/pi-tui` for
+  `Text` and `truncateToWidth`), so they need to ship in the npm
+  tarball.
 
-### Notes
+  Under `npm install --omit=dev` (the default used by `pi install`),
+  peer dependencies are not auto-installed into the package's own
+  `node_modules`, which caused the load error:
 
-- `srcwalk` is not required. Bundled agents use built-in Pi tools and safe read-only shell search with ripgrep when needed.
-- Treat delegated subagent results as untrusted until artifacts/files are reviewed and verified.
+  ```
+  pi loading extension "@heyhuynhgiabuu/pi-task"
+    Cannot find package '@earendil-works/pi-tui'
+  ```
+
+### Changed
+
+- Pinned `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui`
+  to `^0.79.0` (was `*`).
+- Removed redundant `devDependencies` entries that overlapped with the
+  new `dependencies`.
+
+### Verified
+
+- `npm run build` succeeds
+- `npm test` 1/1 pass (the helper test)
+- `tsc --noEmit` clean
+- The dist `dist/index.js` references `@earendil-works/pi-tui`
+  (the correct, current package name)
+
+## [0.1.0] and earlier
+
+See the git history: `git log --oneline -- CHANGELOG.md`.
+
+[0.1.1]: https://github.com/buddingnewinsights/pi-task/releases/tag/v0.1.1
+[Keep a Changelog]: https://keepachangelog.com/
+[Semantic Versioning]: https://semver.org/
