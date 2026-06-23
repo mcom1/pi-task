@@ -20,13 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `.pi/artifacts/task-sessions.json` — registry mapping
   `conversation_id` to `{ task_id, session_file }`. Renamed from
   the v0.1.5 `task-conversations.json`.
-- `.pi/artifacts/RESULT-<task_id>.md` — transient result file the
-  subagent writes during execution. The parent copies this into
-  `TASKS.md` as a `#### Result` block on completion and the file can
-  be deleted.
 - The subagent's session is auto-saved by pi at
-  `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task does not
-  maintain its own session storage.
+  `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task reads
+  the last assistant message from there to populate `#### Result`
+  in `TASKS.md`. The subagent's final assistant message IS the
+  result; no separate result file is required.
 
 ### Removed
 

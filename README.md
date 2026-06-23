@@ -76,12 +76,13 @@ Durable specialist conversation:
         ```
         .pi/artifacts/TASKS.md              # one ### <task-id> block per task
         .pi/artifacts/task-sessions.json    # conversation_id -> { task_id, session_file }
-        .pi/artifacts/RESULT-<task_id>.md   # transient: subagent writes here, parent copies to TASKS.md
         ```
 
         The subagent's session is auto-saved by pi at
-        `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task does not
-        maintain its own session storage.
+        `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task reads
+        the last assistant message from there to populate
+        `#### Result` in `TASKS.md`. The subagent's final message IS
+        the result; no separate result file is required.
 
     Note: true conversation resume requires the tmux/CLI backend so Pi can reopen the saved subagent session. SDK fallback can run one-shot tasks, but it cannot resume a prior Pi session.
 

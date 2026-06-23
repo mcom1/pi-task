@@ -21,23 +21,26 @@ Human-readable release log for `@heyhuynhgiabuu/pi-task`.
 ├── PROGRESS.md          pikit canonical (untouched)
 ├── DECISIONS.md         pikit canonical (untouched)
 ├── TASKS.md             pi-task: all task data, ### blocks per task
-├── task-sessions.json   pi-task: conversation_id → { task_id, session_file }
-└── RESULT-<task_id>.md  pi-task runtime: subagent writes result here
+└── task-sessions.json   pi-task: conversation_id → { task_id, session_file }
 ```
 
 No `.pi/task-runs/`. No `.pi/artifacts/task-<id>/` subdirs. No
-CONTEXT.md (the prompt is in the CLI arg). No SESSION.md (the result
-is in TASKS.md).
+CONTEXT.md (the prompt is in the CLI arg). No SESSION.md. No
+RESULT.md (the subagent's final assistant message IS the result;
+pi-task reads it from the auto-saved session file).
 
 ### How it works
 
 1. Parent launches `pi --name <task_id> "<prompt>"` in a tmux pane
    (interactive TUI) — or `pi --mode json` if tmux is unavailable
 2. Subagent works, user watches (in tmux mode)
-3. Subagent writes to `.pi/artifacts/RESULT-<task_id>.md` when done
-4. Parent reads RESULT, embeds in `TASKS.md` as a `#### Result` block
-5. Parent updates `task-sessions.json` with the session file path
-6. For resume, parent uses `pi --session <session_file>` to continue
+3. Subagent's final assistant message IS the result. The prompt
+   tells the subagent to end with a clear summary.
+4. Parent reads the last assistant message from the auto-saved
+   session file (tmux mode) or from the JSON event stream (SDK mode)
+5. Parent embeds the result in `TASKS.md` as a `#### Result` block
+6. Parent updates `task-sessions.json` with the session file path
+7. For resume, parent uses `pi --session <session_file>` to continue
 
 ## 0.1.2 — 2025
 

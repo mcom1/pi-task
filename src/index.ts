@@ -15,7 +15,7 @@
  *     detection, 30-minute timeout.
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { execFileSync } from "node:child_process";
@@ -942,15 +942,15 @@ export default function (pi: ExtensionAPI) {
             `## Working Directory`,
             ctx.cwd,
             "",
-            `## Output`,
-            `Write your result to ${resultPath}`,
-            "",
-            "Use this format:",
-            "",
-            "```",
-            TASK_RESULT_XML_INSTRUCTIONS,
-            "```",
-          ].join("\n");
+                `## Output`,
+                "Your final assistant message is the result. End with a clear summary of what you did and any findings. No file write is required.",
+                "",
+                "Use this format for the summary:",
+                "",
+                "```",
+                TASK_RESULT_XML_INSTRUCTIONS,
+                "```",
+              ].join("\n");
 
       const sessionDir = join(artifactsDir, "sessions");
       await mkdir(sessionDir, { recursive: true });
@@ -1036,12 +1036,11 @@ export default function (pi: ExtensionAPI) {
           pi.appendEntry("task-registry", entry);
           ensureTaskWidget(ctx);
 
-          void runSdkFallback()
-            .then(async ({ output }) => {
-              const finalOutput =
-                output || "SDK subagent completed without assistant text.";
-              await writeFile(resultPath, finalOutput, "utf-8");
-              backgroundTasks.delete(id);
+              void runSdkFallback()
+                .then(async ({ output }) => {
+                  const finalOutput =
+                    output || "SDK subagent completed without assistant text.";
+                  backgroundTasks.delete(id);
               clearTaskWidgetIfIdle();
               completeTask(pi, id, bgtask, finalOutput, "done", piDir);
             })
@@ -1091,10 +1090,8 @@ export default function (pi: ExtensionAPI) {
                   prompt: params.prompt,
                   result: finalOutput,
                 });
-              } else {
-                await writeFile(resultPath, finalOutput, "utf-8");
-              }
-              return {
+                  }
+                  return {
             content: [{ type: "text" as const, text: finalOutput }],
             details: {
               phase: "done" as const,
