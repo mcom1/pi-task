@@ -2,6 +2,43 @@
 
 Human-readable release log for `@heyhuynhgiabuu/pi-task`.
 
+## 0.1.6
+
+### What changed
+
+- Per-task data lives in flat files at the top of `.pi/artifacts/`.
+  No per-task subdirs, no `<task-id>` paths.
+- The subagent's session is auto-saved by pi at
+  `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task does not
+  maintain its own session storage.
+
+### Layout
+
+```
+.pi/artifacts/
+├── TODO.md              pikit canonical (untouched)
+├── PLAN.md              pikit canonical (untouched)
+├── PROGRESS.md          pikit canonical (untouched)
+├── DECISIONS.md         pikit canonical (untouched)
+├── TASKS.md             pi-task: all task data, ### blocks per task
+├── task-sessions.json   pi-task: conversation_id → { task_id, session_file }
+└── RESULT-<task_id>.md  pi-task runtime: subagent writes result here
+```
+
+No `.pi/task-runs/`. No `.pi/artifacts/task-<id>/` subdirs. No
+CONTEXT.md (the prompt is in the CLI arg). No SESSION.md (the result
+is in TASKS.md).
+
+### How it works
+
+1. Parent launches `pi --name <task_id> "<prompt>"` in a tmux pane
+   (interactive TUI) — or `pi --mode json` if tmux is unavailable
+2. Subagent works, user watches (in tmux mode)
+3. Subagent writes to `.pi/artifacts/RESULT-<task_id>.md` when done
+4. Parent reads RESULT, embeds in `TASKS.md` as a `#### Result` block
+5. Parent updates `task-sessions.json` with the session file path
+6. For resume, parent uses `pi --session <session_file>` to continue
+
 ## 0.1.2 — 2025
 
 ### Fixed

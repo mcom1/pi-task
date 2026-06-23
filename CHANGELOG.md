@@ -4,6 +4,48 @@ All notable changes to `@heyhuynhgiabuu/pi-task` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.6] — 2026-06-25
+
+### Changed
+
+- Per-task data is now in flat files at the top of `.pi/artifacts/`.
+  No per-task subdirs, no `<task-id>` paths. The pikit canonical
+  files (TODO.md, PLAN.md, PROGRESS.md, DECISIONS.md) are flat at the
+  same level; pi-task files now sit alongside them.
+
+### Layout
+
+- `.pi/artifacts/TASKS.md` — one `### <task-id>` block per task, with
+  H4 subsections for `#### Metadata` (JSON) and `#### Result`.
+- `.pi/artifacts/task-sessions.json` — registry mapping
+  `conversation_id` to `{ task_id, session_file }`. Renamed from
+  the v0.1.5 `task-conversations.json`.
+- `.pi/artifacts/RESULT-<task_id>.md` — transient result file the
+  subagent writes during execution. The parent copies this into
+  `TASKS.md` as a `#### Result` block on completion and the file can
+  be deleted.
+- The subagent's session is auto-saved by pi at
+  `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task does not
+  maintain its own session storage.
+
+### Removed
+
+- `.pi/artifacts/task-<id>/` per-task subdirs (and the
+  `metadata.json` + `SESSION.md` + `sessions/` files inside them).
+  All per-task data lives in `TASKS.md` blocks now.
+- `.pi/artifacts/task-conversations.json` — replaced by
+  `task-sessions.json`.
+- The `taskArtifactName(taskId)` / `taskIdFromArtifactName(name)`
+  helpers and the `getArtifactsDir(piDir)` / `getTaskDir(piDir)` /
+  `getTaskRunsDir(piDir)` helpers.
+
+### Verified
+
+- `npm test` passes
+- `npm run typecheck` passes
+- `npm run build` passes
+- `npm run smoke` passes
+
 ## [0.1.4] — 2026-06-21
 
 ### Fixed
@@ -76,7 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `npm view @heyhuynhgiabuu/pi-task@0.1.2 pi` returns
   `{ extensions: [ './dist/index.js' ] }`
 
-[0.1.2]: https://github.com/buddingnewinsights/pi-task/releases/tag/v0.1.2
+    [0.1.2]: https://github.com/heyhuynhgiabuu/pi-task/releases/tag/v0.1.2
 
 ## [0.1.1] — 2025
 
@@ -116,6 +158,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 See the git history: `git log --oneline -- CHANGELOG.md`.
 
-[0.1.1]: https://github.com/buddingnewinsights/pi-task/releases/tag/v0.1.1
-[Keep a Changelog]: https://keepachangelog.com/
-[Semantic Versioning]: https://semver.org/
+    [0.1.1]: https://github.com/heyhuynhgiabuu/pi-task/releases/tag/v0.1.1
+    [0.1.4]: https://github.com/heyhuynhgiabuu/pi-task/releases/tag/v0.1.4
+    [0.1.5]: https://github.com/heyhuynhgiabuu/pi-task/releases/tag/v0.1.5
+    [0.1.6]: https://github.com/heyhuynhgiabuu/pi-task/releases/tag/v0.1.6
+    [Keep a Changelog]: https://keepachangelog.com/
+    [Semantic Versioning]: https://semver.org/

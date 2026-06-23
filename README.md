@@ -66,20 +66,24 @@ Durable specialist conversation:
 }
 ```
 
-`conversation_id` maps to one existing `task-<id>` artifact under `.pi/artifacts/` and reuses its `sessions/` directory on later calls. This is for scoped specialist memory, e.g. a reusable research assistant. Use `/task-sessions` to list known durable conversations.
+        `conversation_id` maps to a durable subagent run. Reused across calls
+        to keep specialist memory, e.g. a reusable research assistant.
+        Use `/task-sessions` to list known durable conversations.
 
-Stored files:
+        Stored files (all flat at the top of `.pi/artifacts/`, no
+        per-task subdirs):
 
-```
-.pi/artifacts/task-registry.json
-.pi/artifacts/task-<id>/CONTEXT.md
-.pi/artifacts/task-<id>/RESULT.md
-.pi/artifacts/task-<id>/SESSION.md
-.pi/artifacts/task-<id>/metadata.json
-.pi/artifacts/task-<id>/sessions/
-```
+        ```
+        .pi/artifacts/TASKS.md              # one ### <task-id> block per task
+        .pi/artifacts/task-sessions.json    # conversation_id -> { task_id, session_file }
+        .pi/artifacts/RESULT-<task_id>.md   # transient: subagent writes here, parent copies to TASKS.md
+        ```
 
-Note: true conversation resume requires the tmux/CLI backend so Pi can reopen the saved subagent session. SDK fallback can run one-shot tasks, but it cannot resume a prior Pi session.
+        The subagent's session is auto-saved by pi at
+        `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task does not
+        maintain its own session storage.
+
+    Note: true conversation resume requires the tmux/CLI backend so Pi can reopen the saved subagent session. SDK fallback can run one-shot tasks, but it cannot resume a prior Pi session.
 
 ## Agent precedence
 

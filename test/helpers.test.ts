@@ -971,40 +971,50 @@ import {
 
 console.log("ALL TASK HELPER TESTS PASSED");
 
-    {
-      const { taskArtifactName, taskIdFromArtifactName } =
-        await import("../src/conversation.js");
-      assert.equal(taskArtifactName("abc123"), "task-abc123");
-      assert.equal(taskArtifactName("task-abc123"), "task-abc123");
-      assert.equal(taskIdFromArtifactName("task-abc123"), "abc123");
-    }
+            {
+              const { readTaskBlock, writeTaskBlock, listTaskBlocks, getTasksFilePath } =
+                await import("../src/conversation.js");
+              const os = await import("node:os");
+              const fs = await import("node:fs/promises");
+              const { join } = await import("node:path");
+              const tmpDir = await fs.mkdtemp(join(os.tmpdir(), "pitask-test-"));
+              try {
+                // Initially empty.
+                assert.equal(listTaskBlocks(tmpDir).size, 0);
+                assert.equal(readTaskBlock(tmpDir, "abc123"), undefined);
+
+                // Write a block, then read it back.
+                writeTaskBlock({
+                  piDir: tmpDir,
+                  taskId: "abc123",
+                  status: "done",
+                  updated: "2026-06-23T00:00:00.000Z",
+                  body: "#### Result\n\nhello",
+                });
+                const block = readTaskBlock(tmpDir, "abc123");
+                assert.equal(block?.status, "done");
+                assert.ok(block?.body.includes("hello"));
+
+                // listTaskBlocks returns the same block.
+                const all = listTaskBlocks(tmpDir);
+                assert.equal(all.size, 1);
+                assert.ok(all.has("abc123"));
+
+                // TASKS.md file exists at the expected path.
+                assert.ok(
+                  (await fs.stat(getTasksFilePath(tmpDir))).isFile(),
+                );
+              } finally {
+                await fs.rm(tmpDir, { recursive: true, force: true });
+              }
+            }
 
     {
       const { normalizeConversationId } = await import("../src/conversation.js");
       assert.equal(normalizeConversationId(" research-ai "), "research-ai");
-      assert.equal(normalizeConversationId(undefined), undefined);
-      assert.throws(
-        () => normalizeConversationId("research/ai"),
-        /conversation_id/,
-      );
-    }
-
-    {
-      const { buildSessionCard } = await import("../src/conversation.js");
-      const card = buildSessionCard({
-
-    conversation_id: "research-ai",
-    task_id: "abc123",
-    artifact: "task-abc123",
-    agent_type: "scout",
-    session_dir: ".pi/artifacts/task-abc123/sessions",
-    session_name: "task-abc123",
-    created_at: "2026-06-22T00:00:00.000Z",
-    last_used_at: "2026-06-22T01:00:00.000Z",
-    last_prompt: "Continue the research.",
-  });
-
-  assert.match(card, /# research-ai/);
-  assert.match(card, /Agent: scout/);
-  assert.match(card, /"conversation_id": "research-ai"/);
-}
+              assert.equal(normalizeConversationId(undefined), undefined);
+              assert.throws(
+                () => normalizeConversationId("research/ai"),
+                    /conversation_id/,
+                  );
+            }

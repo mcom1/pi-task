@@ -4,43 +4,44 @@ import { join } from "node:path";
 /**
  * Conversational subagent helpers.
  *
- * Durable subagent conversations reuse the existing
- * `.pi/artifacts/task-<id>/` artifact convention and add a small
- * `conversation_id` -> `task-<id>` registry under the same artifacts dir.
+ * Per-task data lives in `.pi/artifacts/TASKS.md` as `### <task-id>` blocks.
+ * A small `task-sessions.json` registry in the same directory maps
+ * `conversation_id` to the auto-saved session file path so the
+ * subagent can be resumed later.
+ *
+ * The subagent's session is auto-saved by pi at
+ * `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task does not
+ * maintain its own session storage.
+ *
+ * All artifacts live flat at the top of `.pi/artifacts/`, alongside the
+ * pikit canonical files (TODO.md, PLAN.md, PROGRESS.md, DECISIONS.md).
+ * No subdirs. No per-task paths.
  */
+
+export const TASKS_FILE = "TASKS.md";
+export const TASK_SESSIONS_REGISTRY_FILE = "task-sessions.json";
 
 export interface ConversationMetadata {
   conversation_id: string;
   task_id: string;
-  artifact: string;
   agent_type: string;
-  session_dir: string;
-  session_name: string;
+  session_file: string;
   created_at: string;
   last_used_at: string;
   last_prompt?: string;
 }
 
-export type ConversationRegistry = Record<string, string>;
+export type TaskSessionsRegistry = Record<
+  string,
+  { task_id: string; session_file: string }
+>;
 
-export const CONVERSATION_REGISTRY_FILE = "task-conversations.json";
-
-export function getArtifactsDir(piDir: string): string {
-  return join(piDir, "artifacts");
+export function getTasksFilePath(piDir: string): string {
+  return join(piDir, "artifacts", TASKS_FILE);
 }
 
-export function getConversationRegistryPath(piDir: string): string {
-  return join(getArtifactsDir(piDir), CONVERSATION_REGISTRY_FILE);
-}
-
-export function taskArtifactName(taskId: string): string {
-  return taskId.startsWith("task-") ? taskId : `task-${taskId}`;
-}
-
-export function taskIdFromArtifactName(artifactName: string): string {
-  return artifactName.startsWith("task-")
-    ? artifactName.slice("task-".length)
-    : artifactName;
+export function getTaskSessionsRegistryPath(piDir: string): string {
+  return join(piDir, "artifacts", TASK_SESSIONS_REGISTRY_FILE);
 }
 
 export function normalizeConversationId(value: unknown): string | undefined {
@@ -55,17 +56,25 @@ export function normalizeConversationId(value: unknown): string | undefined {
   return conversationId;
 }
 
-export function readConversationRegistry(piDir: string): ConversationRegistry {
+export function readTaskSessionsRegistry(piDir: string): TaskSessionsRegistry {
   try {
     const parsed = JSON.parse(
-      readFileSync(getConversationRegistryPath(piDir), "utf-8"),
+      readFileSync(getTaskSessionsRegistryPath(piDir), "utf-8"),
     ) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return {};
     }
-    const registry: ConversationRegistry = {};
+    const registry: TaskSessionsRegistry = {};
     for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === "string") registry[key] = value;
+      if (
+        value &&
+        typeof value === "object" &&
+        typeof (value as { task_id?: unknown }).task_id === "string" &&
+        typeof (value as { session_file?: unknown }).session_file === "string"
+      ) {
+        const v = value as { task_id: string; session_file: string };
+        registry[key] = { task_id: v.task_id, session_file: v.session_file };
+      }
     }
     return registry;
   } catch {
@@ -73,118 +82,236 @@ export function readConversationRegistry(piDir: string): ConversationRegistry {
   }
 }
 
-export function writeConversationRegistry(
+export function writeTaskSessionsRegistry(
   piDir: string,
-  registry: ConversationRegistry,
+  registry: TaskSessionsRegistry,
 ): void {
-  const artifactsDir = getArtifactsDir(piDir);
-  mkdirSync(artifactsDir, { recursive: true });
+  mkdirSync(join(piDir, "artifacts"), { recursive: true });
   writeFileSync(
-    getConversationRegistryPath(piDir),
+    getTaskSessionsRegistryPath(piDir),
     `${JSON.stringify(registry, null, 2)}\n`,
     "utf-8",
   );
 }
 
-export function readConversationMetadata(
-  metadataPath: string,
-): ConversationMetadata | undefined {
+/**
+ * Find a `### <task-id>` block in TASKS.md. Returns the block content
+ * (everything between the heading and the next H3 or EOF) plus the
+ * status line if present. Returns undefined if no block exists.
+ */
+export function readTaskBlock(
+  piDir: string,
+  taskId: string,
+): { status: string | null; body: string } | undefined {
+  let content: string;
   try {
-    const parsed = JSON.parse(
-      readFileSync(metadataPath, "utf-8"),
-    ) as Partial<ConversationMetadata>;
-    if (!parsed.conversation_id || !parsed.task_id) return undefined;
-    return parsed as ConversationMetadata;
+    content = readFileSync(getTasksFilePath(piDir), "utf-8");
+  } catch {
+    return undefined;
+  }
+  return parseTaskBlocks(content).get(taskId);
+}
+
+export function listTaskBlocks(
+  piDir: string,
+): Map<string, { status: string | null; body: string }> {
+  let content: string;
+  try {
+    content = readFileSync(getTasksFilePath(piDir), "utf-8");
+  } catch {
+    return new Map();
+  }
+  return parseTaskBlocks(content);
+}
+
+function parseTaskBlocks(
+  content: string,
+): Map<string, { status: string | null; body: string }> {
+  const blocks = new Map<string, { status: string | null; body: string }>();
+  const lines = content.split("\n");
+  let currentTaskId: string | null = null;
+  let currentStatus: string | null = null;
+  let currentBody: string[] = [];
+
+  const flush = () => {
+    if (currentTaskId !== null) {
+      blocks.set(currentTaskId, {
+        status: currentStatus,
+        body: currentBody.join("\n"),
+      });
+    }
+    currentTaskId = null;
+    currentStatus = null;
+    currentBody = [];
+  };
+
+  for (const line of lines) {
+    const heading = line.match(/^###\s+(\S+)\s*$/);
+    if (heading) {
+      flush();
+      currentTaskId = heading[1];
+      continue;
+    }
+    if (currentTaskId === null) continue;
+
+    const statusMatch = line.match(/^status:\s*(\S+)/);
+    if (statusMatch) {
+      currentStatus = statusMatch[1].toLowerCase();
+      continue;
+    }
+    currentBody.push(line);
+  }
+  flush();
+  return blocks;
+}
+
+/**
+ * Append or update a `### <task-id>` block in TASKS.md. If the block
+ * already exists, its body is replaced. Otherwise, the block is
+ * appended at the end of the file.
+ */
+export function writeTaskBlock(options: {
+  piDir: string;
+  taskId: string;
+  status: "active" | "done" | "abandoned";
+  updated: string;
+  body: string;
+}): void {
+  const path = getTasksFilePath(options.piDir);
+  let content = "";
+  try {
+    content = readFileSync(path, "utf-8");
+    if (!content.endsWith("\n")) content += "\n";
+  } catch {
+    content = "";
+  }
+
+  const heading = `### ${options.taskId}`;
+  const statusLine = `status: ${options.status} | updated: ${options.updated}`;
+  const block = `${heading}\n${statusLine}\n\n${options.body}\n`;
+
+  const headingRe = new RegExp(`^### ${escapeRegExp(options.taskId)}\\s*$`, "m");
+  const match = content.match(headingRe);
+  if (match && match.index !== undefined) {
+    const start = match.index;
+    const after = content.slice(start);
+    const nextHeading = after.search(/^###\s+\S+/m);
+    const end = nextHeading > 0 ? start + nextHeading : content.length;
+    content = content.slice(0, start) + block + content.slice(end);
+  } else {
+    if (content.length > 0 && !content.endsWith("\n\n")) {
+      content += "\n";
+    }
+    content += block;
+  }
+
+  mkdirSync(join(options.piDir, "artifacts"), { recursive: true });
+  writeFileSync(path, content, "utf-8");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function parseMetadataFromBody(
+  body: string | undefined,
+): { created_at?: string; last_used_at?: string; agent_type?: string; session_file?: string; conversation_id?: string; last_prompt?: string } | undefined {
+  if (!body) return undefined;
+  const match = body.match(/```json\n([\s\S]*?)\n```/);
+  if (!match) return undefined;
+  try {
+    return JSON.parse(match[1]) as {
+      created_at?: string;
+      last_used_at?: string;
+      agent_type?: string;
+      session_file?: string;
+      conversation_id?: string;
+      last_prompt?: string;
+    };
   } catch {
     return undefined;
   }
 }
 
-export function buildSessionCard(metadata: ConversationMetadata): string {
-  return [
-    `# ${metadata.conversation_id}`,
-    "",
-    `Agent: ${metadata.agent_type}`,
-    `Task: ${taskArtifactName(metadata.task_id)}`,
-    `Last used: ${metadata.last_used_at}`,
-    `Session dir: ${metadata.session_dir}`,
-    "",
-    "## Resume",
-    "",
-    "```json",
-    JSON.stringify(
-      {
-        agent_type: metadata.agent_type,
-        conversation_id: metadata.conversation_id,
-        prompt: "Continue from the prior specialist conversation.",
-      },
-      null,
-      2,
-    ),
-    "```",
-    "",
-    "## Last prompt",
-    "",
-    metadata.last_prompt ?? "",
-    "",
-  ].join("\n");
-}
-
-export function writeConversationArtifacts(options: {
-  taskDir: string;
+export interface WriteTaskBlockInput {
+  piDir: string;
   taskId: string;
   conversationId: string;
   agentType: string;
-  sessionDir: string;
-  sessionName: string;
+  sessionFile: string;
   prompt: string;
-}): ConversationMetadata {
+  result: string;
+  resultLabel?: string;
+}
+
+/**
+ * Persist a completed task: write (or update) the `### <task-id>` block
+ * in TASKS.md with metadata and result as H4 subsections. Also updates
+ * the task-sessions registry.
+ */
+export function writeConversationArtifacts(
+  input: WriteTaskBlockInput,
+): ConversationMetadata {
   const now = new Date().toISOString();
-  const metadataPath = join(options.taskDir, "metadata.json");
-  const existing = readConversationMetadata(metadataPath);
+  const existing = readTaskBlock(input.piDir, input.taskId);
+  const previous = parseMetadataFromBody(existing?.body);
+
   const metadata: ConversationMetadata = {
-    conversation_id: options.conversationId,
-    task_id: options.taskId,
-    artifact: taskArtifactName(options.taskId),
-    agent_type: options.agentType,
-    session_dir: options.sessionDir,
-    session_name: options.sessionName,
-    created_at: existing?.created_at ?? now,
+    conversation_id: input.conversationId,
+    task_id: input.taskId,
+    agent_type: input.agentType,
+    session_file: input.sessionFile,
+    created_at: previous?.created_at ?? now,
     last_used_at: now,
-    last_prompt: options.prompt,
+    last_prompt: input.prompt,
   };
-  mkdirSync(options.taskDir, { recursive: true });
-  writeFileSync(
-    metadataPath,
-    `${JSON.stringify(metadata, null, 2)}\n`,
-    "utf-8",
-  );
-  writeFileSync(
-    join(options.taskDir, "SESSION.md"),
-    buildSessionCard(metadata),
-    "utf-8",
-  );
+
+  const body = [
+    "#### Metadata",
+    "",
+    "```json",
+    JSON.stringify(metadata, null, 2),
+    "```",
+    "",
+    "#### Result",
+    "",
+    input.result.trim(),
+    "",
+  ].join("\n");
+
+  writeTaskBlock({
+    piDir: input.piDir,
+    taskId: input.taskId,
+    status: "done",
+    updated: now,
+    body,
+  });
+
+  const registry = readTaskSessionsRegistry(input.piDir);
+  registry[input.conversationId] = {
+    task_id: input.taskId,
+    session_file: input.sessionFile,
+  };
+  writeTaskSessionsRegistry(input.piDir, registry);
+
   return metadata;
 }
 
 export function renderConversationSessions(piDir: string): string {
-  const registry = readConversationRegistry(piDir);
-  const entries = Object.entries(registry).sort(([left], [right]) =>
-    left.localeCompare(right),
-  );
-  if (entries.length === 0) {
+  const blocks = listTaskBlocks(piDir);
+  if (blocks.size === 0) {
     return 'No durable task conversations found. Start one with task({ conversation_id: "research-ai", ... }).';
   }
+  const entries = Array.from(blocks.entries()).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
   const lines = ["Durable task conversations:"];
-  for (const [conversationId, artifactName] of entries) {
-    const taskId = taskIdFromArtifactName(artifactName);
-    const metadata = readConversationMetadata(
-      join(getArtifactsDir(piDir), taskArtifactName(taskId), "metadata.json"),
-    );
-    const suffix = metadata
-      ? ` — ${metadata.agent_type}, last used ${metadata.last_used_at}`
-      : "";
-    lines.push(`${conversationId} -> ${taskArtifactName(taskId)}${suffix}`);
+  for (const [taskId, block] of entries) {
+    const metadata = parseMetadataFromBody(block.body);
+    const agent = metadata?.agent_type ?? "unknown";
+    const last = metadata?.last_used_at ?? "unknown";
+    const conv = metadata?.conversation_id ?? "(no conversation_id)";
+    lines.push(`${conv} -> ${taskId} — ${agent}, last used ${last}`);
   }
   return lines.join("\n");
 }
