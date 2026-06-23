@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { getLastAssistantTextFromSessionDir } from "../session-text.js";
-import { paneExists } from "./tmux.js";
+    import { existsSync } from "node:fs";
+    import { join } from "node:path";
+    import { getLastAssistantTextFromSessionDir } from "../session-text.js";
+    import { paneExists } from "./tmux.js";
+
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export type TaskCompletionStatus =
   | "running"
@@ -39,22 +41,31 @@ function readSessionText(
 ): string | null {
   const sessionPath = join(sessionDir, "sessions", sessionName);
   const text = getLastAssistantTextFromSessionDir(sessionPath).trim();
-  return text.length > 0 ? text : null;
-}
+      return text.length > 0 ? text : null;
+    }
+    
+    export async function checkTaskCompletion(
+      options: TaskCompletionOptions,
+    ): Promise<TaskCompletionSnapshot> {
+          // When the pane has exited, give pi a brief moment to flush the
+          // session file. Without this, the read can catch a partial
+          // file (e.g. the last `agent_end` / `message_end` events not
+          // yet written) and report "failed" even though the subagent
+          // completed successfully.
+          if (options.paneId && !paneExists(options.paneId)) {
+            await sleep(500);
+          }
 
-export async function checkTaskCompletion(
-  options: TaskCompletionOptions,
-): Promise<TaskCompletionSnapshot> {
-      const result = await readResultFile(options.resultPath);
-      if (result) {
-        return { status: "completed", content: result, source: "result-file" };
-      }
+          const result = await readResultFile(options.resultPath);
+          if (result) {
+            return { status: "completed", content: result, source: "result-file" };
+          }
 
-      // Check session text FIRST. If the subagent's session file has
-      // its final assistant message, the subagent is done — kill the
-      // pane and return, regardless of whether the pane shell is
-      // still open (e.g. remain-on-exit on, or the command exited but
-      // tmux kept the shell alive).
+          // Check session text FIRST. If the subagent's session file has
+          // its final assistant message, the subagent is done — kill the
+          // pane and return, regardless of whether the pane shell is
+          // still open (e.g. remain-on-exit on, or the command exited but
+          // tmux kept the shell alive).
       const sessionResult = readSessionText(
         options.sessionDir,
         options.sessionName,
