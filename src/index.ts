@@ -200,7 +200,8 @@ function readRegistry(piDir: string): RegistryEntry[] {
         if (!existsSync(sessionDir)) return undefined;
         const files = readdirSync(sessionDir)
           .filter((file) => file.endsWith(".jsonl"))
-          .sort();
+          .sort()
+          .reverse();
         for (const file of files) {
           const content = readFileSync(join(sessionDir, file), "utf-8");
           let startedAt = Date.now();
@@ -351,7 +352,12 @@ function completeTask(
 
       const parsed = parseResultXml(content);
       const durationMs = Date.now() - task.startedAt;
-
+      const completedSessionRef = findJsonlSessionByName(
+        piDir,
+        task.sessionName,
+        task.agentType,
+      )?.sessionRef;
+    
       upsertTaskSessionHistory(piDir, {
         id,
         agentType: task.agentType,
@@ -362,6 +368,7 @@ function completeTask(
         piDir,
         dir: task.dir,
         conversationId: task.conversationId,
+        sessionRef: completedSessionRef,
         status: phase,
         completedAt: Date.now(),
         background: true,
@@ -942,14 +949,33 @@ export default function (pi: ExtensionAPI) {
         }
           } else if (params.task_id) {
             // Look up active tasks first, then durable completed-session history.
-            const entries = readRegistry(piDir);
-            const entry =
-              entries.find(
-                (e) =>
-                  e.id === params.task_id || e.sessionName === params.task_id,
-              ) ??
-              findTaskSessionHistory(piDir, params.task_id) ??
-              findJsonlSessionByName(piDir, params.task_id, agent.name);
+                const entries = readRegistry(piDir);
+                let entry =
+                  entries.find(
+                    (e) =>
+                      e.id === params.task_id || e.sessionName === params.task_id,
+                  ) ??
+                  findTaskSessionHistory(piDir, params.task_id) ??
+                  findJsonlSessionByName(piDir, params.task_id, agent.name);
+
+                // Older history entries were written before we stored the
+                // actual JSONL path needed by `pi --session`. Repair them by
+                // resolving the display session name to a session file.
+                if (entry && !entry.sessionRef) {
+                  const discovered = findJsonlSessionByName(
+                    piDir,
+                    entry.sessionName,
+                    entry.agentType,
+                  );
+                  if (discovered?.sessionRef) {
+                    entry = { ...entry, sessionRef: discovered.sessionRef };
+                    upsertTaskSessionHistory(piDir, {
+                      ...entry,
+                      status: "done",
+                      background: false,
+                    });
+                  }
+                }
             if (!entry) {
               return {
                 content: [
@@ -1024,10 +1050,26 @@ export default function (pi: ExtensionAPI) {
                   tmux_session: sessionName,
                   background: true,
                 },
-              };
-            }
-          } else {
-            id = `${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
+                  };
+                }
+
+                if (!resumeSessionRef) {
+                  return {
+                    content: [
+                      {
+                        type: "text" as const,
+                        text: `Task "${params.task_id}" was found, but its session JSONL file could not be resolved. Cannot resume without a --session file path.`,
+                      },
+                    ],
+                    details: {
+                      phase: "failed" as const,
+                      error: "Task session file missing",
+                    },
+                    isError: true,
+                  };
+                }
+              } else {
+                id = `${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
             sessionName = conversationId ?? `task-${id}`;
             resultPath = join(artifactsDir, `RESULT-${id}.md`);
           }
@@ -1325,6 +1367,11 @@ export default function (pi: ExtensionAPI) {
                 : completion.status === "cancelled"
                   ? "cancelled"
                   : "failed";
+                const completedSessionRef = findJsonlSessionByName(
+                  piDir,
+                  sessionName,
+                  agent.name,
+                )?.sessionRef;
                 upsertTaskSessionHistory(piDir, {
                   id,
                   agentType: agent.name,
@@ -1335,6 +1382,7 @@ export default function (pi: ExtensionAPI) {
                   piDir,
                   dir: artifactsDir,
                   conversationId,
+                  sessionRef: completedSessionRef,
                   status: phase,
                   completedAt: Date.now(),
                   background: false,
