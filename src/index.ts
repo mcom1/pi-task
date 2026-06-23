@@ -16,7 +16,7 @@
  */
 
 import { mkdir } from "node:fs/promises";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+    import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -90,20 +90,27 @@ interface BackgroundTask {
   recentCalls: ToolCallRecord[];
 }
 
-/** Serializable subset for registry persistence. */
-interface RegistryEntry {
-  id: string;
-  agentType: string;
-  description: string;
-  sessionName: string;
-  startedAt: number;
-  paneId?: string;
-  piDir: string;
-  dir: string;
-  conversationId?: string;
-}
+    /** Serializable subset for active task registry persistence. */
+    interface RegistryEntry {
+      id: string;
+      agentType: string;
+      description: string;
+      sessionName: string;
+      startedAt: number;
+      paneId?: string;
+      piDir: string;
+      dir: string;
+      conversationId?: string;
+    }
 
-export /** Details attached to tool result for rendering. */
+    /** Durable task→session mapping used for resume after task completion. */
+    interface TaskSessionHistoryEntry extends RegistryEntry {
+      status: "running" | "done" | "cancelled" | "aborted" | "failed" | "timeout";
+      completedAt?: number;
+      background: boolean;
+    }
+    
+    export /** Details attached to tool result for rendering. */
 interface TaskDetails {
   task_id: string;
   agent_type: string;
@@ -135,12 +142,110 @@ function readRegistry(piDir: string): RegistryEntry[] {
   }
 }
 
-function writeRegistry(piDir: string, entries: RegistryEntry[]): void {
-  const path = join(piDir, "task-registry.json");
-  writeFileSync(path, JSON.stringify(entries, null, 2), "utf-8");
-}
+    function writeRegistry(piDir: string, entries: RegistryEntry[]): void {
+      const path = join(piDir, "task-registry.json");
+      writeFileSync(path, JSON.stringify(entries, null, 2), "utf-8");
+    }
 
-// ─── Tmux Helpers ────────────────────────────────────────────────────────────
+    function readTaskSessionHistory(piDir: string): TaskSessionHistoryEntry[] {
+      const path = join(piDir, "task-session-history.json");
+      try {
+        return JSON.parse(readFileSync(path, "utf-8"));
+      } catch {
+        return [];
+      }
+    }
+
+    function writeTaskSessionHistory(
+      piDir: string,
+      entries: TaskSessionHistoryEntry[],
+    ): void {
+      const path = join(piDir, "task-session-history.json");
+      writeFileSync(path, JSON.stringify(entries, null, 2), "utf-8");
+    }
+
+    function upsertTaskSessionHistory(
+      piDir: string,
+      entry: TaskSessionHistoryEntry,
+    ): void {
+      const entries = readTaskSessionHistory(piDir);
+      const index = entries.findIndex((existing) => existing.id === entry.id);
+      if (index >= 0) {
+        entries[index] = { ...entries[index], ...entry };
+      } else {
+        entries.push(entry);
+      }
+      writeTaskSessionHistory(piDir, entries);
+    }
+
+    function findTaskSessionHistory(
+      piDir: string,
+      idOrSessionName: string,
+    ): TaskSessionHistoryEntry | undefined {
+      return readTaskSessionHistory(piDir).find(
+        (entry) =>
+          entry.id === idOrSessionName || entry.sessionName === idOrSessionName,
+      );
+    }
+
+    function findJsonlSessionByName(
+      piDir: string,
+      sessionName: string,
+      agentType: string,
+    ): TaskSessionHistoryEntry | undefined {
+      const artifactsDir = join(piDir, "artifacts");
+      const sessionDir = join(artifactsDir, "sessions");
+      try {
+        if (!existsSync(sessionDir)) return undefined;
+        const files = readdirSync(sessionDir)
+          .filter((file) => file.endsWith(".jsonl"))
+          .sort();
+        for (const file of files) {
+          const content = readFileSync(join(sessionDir, file), "utf-8");
+          let startedAt = Date.now();
+          for (const rawLine of content.split("\n")) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            try {
+              const entry = JSON.parse(line) as {
+                type?: string;
+                timestamp?: string;
+                name?: string;
+                session_info?: { name?: string };
+              };
+              if (entry.type === "session" && entry.timestamp) {
+                const parsed = Date.parse(entry.timestamp);
+                if (Number.isFinite(parsed)) startedAt = parsed;
+              }
+              if (entry.type === "session_info") {
+                const name = entry.name ?? entry.session_info?.name;
+                if (name === sessionName) {
+                  return {
+                    id: sessionName,
+                    agentType,
+                    description: `Resumed session ${sessionName}`,
+                    sessionName,
+                    startedAt,
+                    piDir,
+                    dir: artifactsDir,
+                    status: "done",
+                    background: false,
+                  };
+                }
+                break;
+              }
+            } catch {
+              // Skip malformed lines
+            }
+          }
+        }
+      } catch {
+        return undefined;
+      }
+      return undefined;
+    }
+    
+    // ─── Tmux Helpers ────────────────────────────────────────────────────────────
 
 function tmuxCmd(args: string[]): string {
   return execFileSync("tmux", args, {
@@ -242,10 +347,25 @@ function completeTask(
   // Kill the tmux pane if still alive
   killAgentPane(task.paneId, task.originalPane);
 
-  const parsed = parseResultXml(content);
-  const durationMs = Date.now() - task.startedAt;
+      const parsed = parseResultXml(content);
+      const durationMs = Date.now() - task.startedAt;
 
-  // Send completion notification
+      upsertTaskSessionHistory(piDir, {
+        id,
+        agentType: task.agentType,
+        description: task.description,
+        sessionName: task.sessionName,
+        startedAt: task.startedAt,
+        paneId: task.paneId,
+        piDir,
+        dir: task.dir,
+        conversationId: task.conversationId,
+        status: phase,
+        completedAt: Date.now(),
+        background: true,
+      });
+    
+      // Send completion notification
   pi.sendMessage(
     {
       customType: "task-complete",
@@ -471,8 +591,7 @@ export default function (pi: ExtensionAPI) {
       const agentName =
         task.agentType.charAt(0).toUpperCase() + task.agentType.slice(1);
       const elapsed = formatMs(now - task.startedAt);
-      const total =
-        task.toolUses > 0 ? `  ${task.turns || task.toolUses} toolcalls` : "";
+          const total = task.toolUses > 0 ? `  ${task.toolUses} toolcalls` : "";
 
       const description = task.description ? ` — ${task.description}` : "";
 
@@ -817,85 +936,91 @@ export default function (pi: ExtensionAPI) {
             },
           };
         }
-      } else if (params.task_id) {
-        // Look up the task in the persistent registry
-        const entries = readRegistry(piDir);
-        const entry = entries.find((e) => e.id === params.task_id);
-        if (!entry) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Unknown task_id: "${params.task_id}". No task with that ID found in the registry.`,
-              },
-            ],
-            details: {
-              phase: "failed" as const,
-              error: `Unknown task_id: ${params.task_id}`,
-            },
-            isError: true,
-          };
-        }
-        if (!existsSync(entry.dir)) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Task "${params.task_id}" artifact directory no longer exists: ${entry.dir}`,
-              },
-            ],
-            details: {
-              phase: "failed" as const,
-              error: "Task artifact dir missing",
-            },
-            isError: true,
-          };
-        }
-            // Resume: reuse the existing session name; runtime files are
-            // flat in artifactsDir, no per-task subdir.
-            id = entry.id;
-            sessionName = entry.sessionName;
-            resultPath = join(artifactsDir, `RESULT-${id}.md`);
-            resume = true;
-
-        // If background and pane still alive, reattach to tracker
-        if (
-          params.background !== false &&
-          entry.paneId &&
-          paneExists(entry.paneId)
-        ) {
-          const bgtask: BackgroundTask = {
-            dir: artifactsDir,
-            agentType: agent.name,
-            sessionName,
-            paneId: entry.paneId,
-            originalPane: null,
-            description: params.description || entry.agentType,
-            startedAt: entry.startedAt,
-            toolUses: 0,
-            turns: 0,
-            conversationId: entry.conversationId,
-            recentCalls: [],
-          };
-          backgroundTasks.set(id, bgtask);
-
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Resumed task "${params.task_id}". The subagent is running in background and will notify on completion.`,
-              },
-            ],
-            details: {
-              task_id: id,
-              agent_type: agent.name,
-              description: params.description,
-              conversation_id: entry.conversationId ?? conversationId,
-              tmux_session: sessionName,
-              background: true,
-            },
-          };
-        }
+          } else if (params.task_id) {
+            // Look up active tasks first, then durable completed-session history.
+            const entries = readRegistry(piDir);
+            const entry =
+              entries.find(
+                (e) =>
+                  e.id === params.task_id || e.sessionName === params.task_id,
+              ) ??
+              findTaskSessionHistory(piDir, params.task_id) ??
+              findJsonlSessionByName(piDir, params.task_id, agent.name);
+            if (!entry) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Unknown task_id: "${params.task_id}". No active or completed task session with that ID/session name was found.`,
+                  },
+                ],
+                details: {
+                  phase: "failed" as const,
+                  error: `Unknown task_id: ${params.task_id}`,
+                },
+                isError: true,
+              };
+            }
+            if (!existsSync(entry.dir)) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Task "${params.task_id}" artifact directory no longer exists: ${entry.dir}`,
+                  },
+                ],
+                details: {
+                  phase: "failed" as const,
+                  error: "Task artifact dir missing",
+                },
+                isError: true,
+              };
+            }
+                // Resume: reuse the existing session name; runtime files are
+                // flat in artifactsDir, no per-task subdir.
+                id = entry.id;
+                sessionName = entry.sessionName;
+                resultPath = join(artifactsDir, `RESULT-${id}.md`);
+                resume = true;
+    
+            // If background and pane still alive, reattach to tracker
+            if (
+              params.background !== false &&
+              entry.paneId &&
+              paneExists(entry.paneId)
+            ) {
+              const bgtask: BackgroundTask = {
+                dir: artifactsDir,
+                agentType: entry.agentType,
+                sessionName,
+                paneId: entry.paneId,
+                originalPane: null,
+                description: params.description || entry.description,
+                startedAt: entry.startedAt,
+                toolUses: 0,
+                turns: 0,
+                conversationId: entry.conversationId,
+                recentCalls: [],
+              };
+              backgroundTasks.set(id, bgtask);
+    
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Resumed task "${params.task_id}". The subagent is running in background and will notify on completion.`,
+                  },
+                ],
+                details: {
+                  task_id: id,
+                  agent_type: entry.agentType,
+                  description: params.description || entry.description,
+                  conversation_id: entry.conversationId ?? conversationId,
+                  tmux_session: sessionName,
+                  background: true,
+                },
+              };
+            }
           } else {
             id = `${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
             sessionName = conversationId ?? `task-${id}`;
@@ -1034,11 +1159,16 @@ export default function (pi: ExtensionAPI) {
             conversationId,
           };
 
-          const entries = readRegistry(piDir);
-          entries.push(entry);
-          writeRegistry(piDir, entries);
-          pi.appendEntry("task-registry", entry);
-          ensureTaskWidget(ctx);
+              const entries = readRegistry(piDir);
+              entries.push(entry);
+              writeRegistry(piDir, entries);
+              upsertTaskSessionHistory(piDir, {
+                ...entry,
+                status: "running",
+                background: true,
+              });
+              pi.appendEntry("task-registry", entry);
+              ensureTaskWidget(ctx);
 
               void runSdkFallback()
                 .then(async ({ output }) => {
@@ -1155,10 +1285,24 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      // ── FOREGROUND MODE: block until result, return directly ────────────
-      if (!isBackground) {
-        const startedAt = Date.now();
-        const completion = await waitForSessionTaskCompletion({
+          // ── FOREGROUND MODE: block until result, return directly ────────────
+          if (!isBackground) {
+            const startedAt = Date.now();
+            upsertTaskSessionHistory(piDir, {
+              id,
+              agentType: agent.name,
+              description: descText,
+              sessionName,
+              startedAt,
+              paneId,
+              piDir,
+              dir: artifactsDir,
+              conversationId,
+              status: "running",
+              background: false,
+            });
+
+            const completion = await waitForSessionTaskCompletion({
           resultPath,
           sessionDir,
           sessionName,
@@ -1173,9 +1317,23 @@ export default function (pi: ExtensionAPI) {
                 : completion.status === "cancelled"
                   ? "cancelled"
                   : "failed";
-            killAgentPane(paneId, originalPane);
-            foregroundTasks.delete(id);
-            clearTaskWidgetIfIdle();
+                upsertTaskSessionHistory(piDir, {
+                  id,
+                  agentType: agent.name,
+                  description: descText,
+                  sessionName,
+                  startedAt,
+                  paneId,
+                  piDir,
+                  dir: artifactsDir,
+                  conversationId,
+                  status: phase,
+                  completedAt: Date.now(),
+                  background: false,
+                });
+                killAgentPane(paneId, originalPane);
+                foregroundTasks.delete(id);
+                clearTaskWidgetIfIdle();
 
             if (conversationId) {
               writeConversationArtifacts({
@@ -1244,24 +1402,29 @@ export default function (pi: ExtensionAPI) {
       backgroundTasks.set(id, bgtask);
 
       // ── P0: Persistent registry ────────────────────────────────────────
-      const entry: RegistryEntry = {
-        id,
-        agentType: agent.name,
-        description: descText,
-        sessionName,
-        startedAt: Date.now(),
-        paneId,
-        piDir,
-        dir: artifactsDir,
-        conversationId,
-      };
-
-      // Write to JSON registry for on-load restore
-      const entries = readRegistry(piDir);
-      entries.push(entry);
-      writeRegistry(piDir, entries);
-      // Also persist to session store via appendEntry (audit trail)
-      pi.appendEntry("task-registry", entry);
+          const entry: RegistryEntry = {
+            id,
+            agentType: agent.name,
+            description: descText,
+            sessionName,
+            startedAt: bgtask.startedAt,
+            paneId,
+            piDir,
+            dir: artifactsDir,
+            conversationId,
+          };
+    
+          // Write to JSON registry for on-load restore
+          const entries = readRegistry(piDir);
+          entries.push(entry);
+          writeRegistry(piDir, entries);
+          upsertTaskSessionHistory(piDir, {
+            ...entry,
+            status: "running",
+            background: true,
+          });
+          // Also persist to session store via appendEntry (audit trail)
+          pi.appendEntry("task-registry", entry);
 
       // ── Abort signal handling ──────────────────────────────────────────
       if (signal) {
