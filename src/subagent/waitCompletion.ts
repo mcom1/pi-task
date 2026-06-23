@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
     import { existsSync } from "node:fs";
-    import { join } from "node:path";
     import { getLastAssistantTextFromSessionDir } from "../session-text.js";
     import { paneExists } from "./tmux.js";
 
@@ -35,12 +34,14 @@ async function readResultFile(resultPath: string): Promise<string | null> {
   return text.length > 0 ? text : null;
 }
 
-function readSessionText(
-  sessionDir: string,
-  sessionName: string,
-): string | null {
-  const sessionPath = join(sessionDir, "sessions", sessionName);
-  const text = getLastAssistantTextFromSessionDir(sessionPath).trim();
+    function readSessionText(
+      sessionDir: string,
+      _sessionName: string,
+    ): string | null {
+      // Session files are written by pi directly into `sessionDir`
+      // (flat). `sessionName` is preserved for future per-session
+      // filtering; for now, just scan the whole dir.
+      const text = getLastAssistantTextFromSessionDir(sessionDir).trim();
       return text.length > 0 ? text : null;
     }
     
