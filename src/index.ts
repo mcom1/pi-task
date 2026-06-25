@@ -1,18 +1,18 @@
 /**
  * Task Tool — Delegate complex work to specialist agents.
  *
- * Spawns pi CLI in a tmux split pane (so you can watch it live) and
- * detects completion via RESULT.md polling. On completion, tool call
- * count and duration are reported as a notification.
+ * Spawns pi CLI in a tmux split pane (foreground) or background.
+ * Completion is detected from the subagent's final assistant message
+ * in the persistent session JSONL (stopReason gating). The final message
+ * is the authoritative result; no RESULT.md is used.
  *
  * Three agent sources:
  *   - .pi/agents/*.md        project-local agents
  *   - ~/.pi/agent/agents/*.md user-global agents (fallback)
  *
  * P0: Persistent task registry (appendEntry + JSON), --session resume,
- *     sendMessage completion notification.
- * P1: Foreground mode (background:false, inline subprocess), pane death
- *     detection, 30-minute timeout.
+ *     sendMessage completion notification, Ctrl+O expand/collapse.
+ * P1: Foreground mode (background:false), pane death detection, timeout.
  */
 
 import { execFileSync } from "node:child_process";
@@ -27,6 +27,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { keyHint } from "@earendil-works/pi-coding-agent";
 import { buildAgentToolSelection } from "./agent-tools.js";
 import {
   normalizeConversationId,
@@ -40,7 +41,7 @@ import {
 import {
   type ToolCallRecord,
   TASK_BACKGROUND_DEFAULT,
-  TASK_RESULT_XML_INSTRUCTIONS,
+  TASK_PROMPT_INSTRUCTIONS,
   TASK_TOOL_DESCRIPTION,
   buildTmuxSplitWindowArgs,
   chooseTmuxSplitDirection,
@@ -56,9 +57,14 @@ import {
 } from "./helpers.js";
 import { runSdkSubagent } from "./subagent/runSdk.js";
 import {
+  type TaskCompletionSnapshot,
   checkTaskCompletion,
   waitForTaskCompletion as waitForSessionTaskCompletion,
 } from "./subagent/waitCompletion.js";
+import {
+  setPaneRemainOnExit,
+  wrapWithPaneExitWatcher,
+} from "./subagent/tmux.js";
 import {
   renderTaskWidget,
   TASK_WIDGET_RENDER_MS,
@@ -75,6 +81,7 @@ const BUNDLED_AGENT_DIR = join(
 const BACKGROUND_CHECK_MS = 10_000; // poll every 10 sec
 const COUNT_POLL_MS = 3_000; // update toolcall counts every 3 sec
 const TASK_TIMEOUT_MS = 30 * 60 * 1_000; // 30 minutes
+const MAX_POLL_ERRORS = 3; // consecutive poll failures before giving up on a task
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,6 +98,8 @@ interface BackgroundTask {
   conversationId?: string;
   /** Most recent tool calls (capped), updated every COUNT_POLL_MS. */
   recentCalls: ToolCallRecord[];
+  /** Consecutive completion-poll failures; reset to 0 on a successful poll. */
+  pollErrors?: number;
 }
 
 /** Serializable subset for active task registry persistence. */
@@ -472,11 +481,13 @@ export default function (pi: ExtensionAPI) {
   }
 
   const countInterval = setInterval(() => {
-    for (const task of [
-      ...foregroundTasks.values(),
-      ...backgroundTasks.values(),
-    ]) {
-      const sessionDir = join(task.dir, "sessions");
+    const trackedTasks = [
+      ...foregroundTasks.entries(),
+      ...backgroundTasks.entries(),
+    ] as Array<[string, BackgroundTask]>;
+
+    for (const [id, task] of trackedTasks) {
+      const sessionDir = join(task.dir, "sessions", id);
       // Single walk: counts + recent tool-call history with status
       const { toolUses, turns, recent } = readRecentToolCalls(
         sessionDir,
@@ -555,51 +566,83 @@ export default function (pi: ExtensionAPI) {
 
   // ── Polling loop (background task completion, pane death, timeout) ──────
 
+  // setInterval does not wait for an async callback to settle, so a slow pass
+  // could overlap the next one and double-complete a task. Ticks that fire
+  // mid-pass become no-ops.
+  let checkInFlight = false;
+
   const checkInterval = setInterval(async () => {
+    if (checkInFlight) return;
     if (backgroundTasks.size === 0) {
       clearTaskWidgetIfIdle();
       return;
     }
 
-    const now = Date.now();
-    const ids = Array.from(backgroundTasks.keys());
+    checkInFlight = true;
+    try {
+      const now = Date.now();
+      const ids = Array.from(backgroundTasks.keys());
 
-    for (const id of ids) {
-      const task = backgroundTasks.get(id);
-      if (!task) continue;
+      for (const id of ids) {
+        const task = backgroundTasks.get(id);
+        if (!task) continue;
 
-      // ── Check timeout ────────────────────────────────────────────
-      if (now - task.startedAt > TASK_TIMEOUT_MS) {
-        killAgentPane(task.paneId, task.originalPane);
+        // ── Check timeout ────────────────────────────────────────────
+        if (now - task.startedAt > TASK_TIMEOUT_MS) {
+          killAgentPane(task.paneId, task.originalPane);
+          backgroundTasks.delete(id);
+          clearTaskWidgetIfIdle();
+          completeTask(
+            pi,
+            id,
+            task,
+            "Task timed out after 30 minutes",
+            "timeout",
+            piDir,
+          );
+          continue;
+        }
+
+        let snapshot: TaskCompletionSnapshot;
+        try {
+          snapshot = await checkTaskCompletion({
+            sessionDir: join(task.dir, "sessions", id),
+            sessionName: task.sessionName,
+            paneId: task.paneId,
+            sinceMs: task.startedAt,
+          });
+        } catch (err) {
+          task.pollErrors = (task.pollErrors ?? 0) + 1;
+          if (task.pollErrors >= MAX_POLL_ERRORS) {
+            killAgentPane(task.paneId, task.originalPane);
+            backgroundTasks.delete(id);
+            clearTaskWidgetIfIdle();
+            const message = err instanceof Error ? err.message : String(err);
+            completeTask(
+              pi,
+              id,
+              task,
+              `Task ${id} polling failed ${task.pollErrors}x; last error: ${message}`,
+              "failed",
+              piDir,
+            );
+          }
+          continue;
+        }
+
+        task.pollErrors = 0;
+
+        if (snapshot.status === "running") {
+          continue;
+        }
+
+        const phase = snapshot.status === "completed" ? "done" : "failed";
         backgroundTasks.delete(id);
         clearTaskWidgetIfIdle();
-        completeTask(
-          pi,
-          id,
-          task,
-          "Task timed out after 30 minutes",
-          "timeout",
-          piDir,
-        );
-        continue;
+        completeTask(pi, id, task, snapshot.content, phase, piDir);
       }
-
-      const snapshot = await checkTaskCompletion({
-        resultPath: join(task.dir, "RESULT.md"),
-        sessionDir: join(task.dir, "sessions"),
-        sessionName: task.sessionName,
-        paneId: task.paneId,
-        sinceMs: task.startedAt,
-      });
-
-      if (snapshot.status === "running") {
-        continue;
-      }
-
-      const phase = snapshot.status === "completed" ? "done" : "failed";
-      backgroundTasks.delete(id);
-      clearTaskWidgetIfIdle();
-      completeTask(pi, id, task, snapshot.content, phase, piDir);
+    } finally {
+      checkInFlight = false;
     }
   }, BACKGROUND_CHECK_MS);
 
@@ -617,52 +660,56 @@ export default function (pi: ExtensionAPI) {
 
   // ── Custom notification renderer ───────────────────────────────────────
 
-  pi.registerMessageRenderer?.(
-    "task-complete",
-    (message, { expanded }, theme) => {
-      const d = message.details as Record<string, unknown> | undefined;
-      if (!d) return undefined;
+      pi.registerMessageRenderer?.(
+        "task-complete",
+        (message, { expanded }, theme) => {
+          const d = message.details as Record<string, unknown> | undefined;
+          if (!d) return undefined;
+    
+          const agentType = (d.agent_type as string) || "";
+          const desc = (d.description as string) || "";
+          const result = ((d.result as string) || "").trim();
+          const durationMs = (d.duration_ms as number) || 0;
+          const toolUses = (d.tool_uses as number) || 0;
+    
+          let line = " " + theme.fg("accent", agentType);
+          if (desc) line += theme.fg("dim", ` - ${desc}`);
+    
+          const useStr = toolUses > 0 ? `${toolUses} toolcalls` : "";
+          const durStr = durationMs >= 1000 ? formatMs(durationMs) : "";
+          const statsParts = [useStr, durStr].filter(Boolean);
+          const statsText = statsParts.join(" • ");
+    
+          if (statsText) {
+            line += "\n " + theme.fg("dim", statsText);
+          }
+    
+          const expandHint = keyHint("app.tools.expand", "to expand");
+          const collapseHint = keyHint("app.tools.expand", "to collapse");
+    
+          if (expanded) {
+            // Expanded: show the FULL result
+            if (result) line += "\n " + theme.fg("muted", result);
+            line += "\n " + theme.fg("dim", `  (${collapseHint})`);
+          } else {
+            // Collapsed: preview only
+            const preview = result.slice(0, 120);
+            if (preview) {
+              line +=
+                "\n " +
+                theme.fg("dim", `  ⎿  ${preview}`) +
+                (result.length > 120 ? theme.fg("dim", "…") : "");
+            }
+            if (result.length > 120) {
+              line +=
+                "\n " +
+                theme.fg("dim", `  (${expandHint})`);
+            }
+          }
 
-      const agentType = (d.agent_type as string) || "";
-      const desc = (d.description as string) || "";
-      const summary = (d.summary as string) || "";
-      const findings = (d.findings as string) || "";
-      const confidence = (d.confidence as string) || "";
-      const durationMs = (d.duration_ms as number) || 0;
-      const toolUses = (d.tool_uses as number) || 0;
-
-      let line = " " + theme.fg("accent", agentType);
-      if (desc) line += theme.fg("dim", ` - ${desc}`);
-
-      const useStr = toolUses > 0 ? `${toolUses} toolcalls` : "";
-      const durStr = durationMs >= 1000 ? formatMs(durationMs) : "";
-      const statsParts = [useStr, durStr].filter(Boolean);
-      const statsText = statsParts.join(" • ");
-      const confStr = confidence ? confidence.toUpperCase() : "";
-      const confColor =
-        confidence === "high"
-          ? "success"
-          : confidence === "low"
-            ? "error"
-            : "accent";
-
-      if (statsText || confStr) {
-        line += "\n ";
-        if (confStr) line += theme.fg(confColor as any, `[${confStr}]`);
-        if (statsText)
-          line += (confStr ? " " : "") + theme.fg("dim", statsText);
-      }
-
-      if (expanded) {
-        if (summary) line += "\n " + theme.fg("muted", summary);
-        if (findings) line += "\n " + theme.fg("dim", findings);
-      }
-
-      if (!line.trim()) return undefined;
-      const subtleBg = (text: string) => `\x1b[48;2;30;28;44m${text}\x1b[0m`;
-      return new Text(line, 0, 1, subtleBg);
-    },
-  );
+          return new Text(line, 0, 0);
+        },
+      );
 
   // ── Tool Registration ──────────────────────────────────────────────────
 
@@ -705,14 +752,14 @@ export default function (pi: ExtensionAPI) {
         }),
       ),
 
-      background: Type.Optional(
-        Type.Boolean({
-          description:
-            "Run in background (async). You will be notified when it completes. DO NOT sleep, poll, ask the task for status, or duplicate its work while it runs in background.",
-          default: true,
+          background: Type.Optional(
+            Type.Boolean({
+              description:
+                "Run in background (async). You will be notified when it completes. DO NOT sleep, poll, ask the task for status, or duplicate its work while it runs in background.",
+              default: true,
+            }),
+          ),
         }),
-      ),
-    }),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const { agents, piDir } = discoverAgents(ctx.cwd, BUNDLED_AGENT_DIR);
@@ -768,35 +815,17 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      let id: string;
-      let sessionName: string;
-      let resultPath: string;
-      let resume = false;
-      let resumeSessionRef: string | undefined;
-
-      const artifactsDir = join(piDir, "artifacts");
-
-      if (registeredTaskId) {
-        id = registeredTaskId;
-        sessionName = conversationId ?? `task-${id}`;
-        resultPath = join(artifactsDir, `RESULT-${id}.md`);
-        if (!existsSync(resultPath)) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `conversation_id "${conversationId}" has no prior result file at ${resultPath}. Cannot resume.`,
-              },
-            ],
-            details: {
-              phase: "failed" as const,
-              error: "Conversation result missing",
-              conversation_id: conversationId,
-            },
-            isError: true,
-          };
-        }
-        const block = readTaskBlock(piDir, id);
+          let id: string;
+          let sessionName: string;
+          let resume = false;
+          let resumeSessionRef: string | undefined;
+    
+          const artifactsDir = join(piDir, "artifacts");
+    
+          if (registeredTaskId) {
+            id = registeredTaskId;
+            sessionName = conversationId ?? `task-${id}`;
+            const block = readTaskBlock(piDir, id);
         const previousMetadata = parseMetadataFromBody(block?.body);
         const metadataAgent = previousMetadata?.agent_type;
         if (metadataAgent && metadataAgent !== agent.name) {
@@ -917,11 +946,10 @@ export default function (pi: ExtensionAPI) {
         }
         // Resume: reuse the existing session name; runtime files are
         // flat in artifactsDir, no per-task subdir.
-        id = entry.id;
-        sessionName = entry.sessionName;
-        resultPath = join(artifactsDir, `RESULT-${id}.md`);
-        resume = true;
-        resumeSessionRef = entry.sessionRef;
+         id = entry.id;
+         sessionName = entry.sessionName;
+         resume = true;
+         resumeSessionRef = entry.sessionRef;
 
         // If background and pane still alive, reattach to tracker
         if (
@@ -977,11 +1005,10 @@ export default function (pi: ExtensionAPI) {
             isError: true,
           };
         }
-      } else {
-        id = `${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
-        sessionName = conversationId ?? `task-${id}`;
-        resultPath = join(artifactsDir, `RESULT-${id}.md`);
-      }
+       } else {
+         id = `${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
+         sessionName = conversationId ?? `task-${id}`;
+       }
 
       if (conversationId && !hasTmux()) {
         return {
@@ -1014,31 +1041,24 @@ export default function (pi: ExtensionAPI) {
       const isBackground = params.background ?? TASK_BACKGROUND_DEFAULT;
       // default true
 
-      // ── Build the prompt (instructions are inlined; no CONTEXT.md file) ─
-      const promptContent = [
-        `# Task: ${descText}`,
-        "",
-        `## Agent`,
-        `${agent.name} (${agent.source})`,
-        "",
-        `## Instructions`,
-        params.prompt,
-        "",
-        `## Working Directory`,
-        ctx.cwd,
-        "",
-        `## Output`,
-        "Your final assistant message is the result. End with a clear summary of what you did and any findings. No file write is required.",
-        "",
-        "Use this format for the summary:",
-        "",
-        "```",
-        TASK_RESULT_XML_INSTRUCTIONS,
-        "```",
-      ].join("\n");
+          // ── Build the prompt (instructions are inlined; no CONTEXT.md file) ─
+          const promptContent = [
+            `# Task: ${descText}`,
+            "",
+            `## Agent`,
+            `${agent.name} (${agent.source})`,
+            "",
+            `## Instructions`,
+            params.prompt,
+            "",
+            `## Working Directory`,
+            ctx.cwd,
+            "",
+            TASK_PROMPT_INSTRUCTIONS,
+          ].join("\n");
 
-      const sessionDir = join(artifactsDir, "sessions");
-      await mkdir(sessionDir, { recursive: true });
+          const sessionDir = join(artifactsDir, "sessions", id);
+          await mkdir(sessionDir, { recursive: true });
 
       // ─── Build and run the sub-agent pi process ──────────────────────────
       const piArgs = buildPiArgs(
@@ -1051,6 +1071,16 @@ export default function (pi: ExtensionAPI) {
         resumeSessionRef,
       );
       const envPrefix = `PI_TASK_TOOL_DISABLED=1`;
+      const forceTmuxBackend =
+        process.env.PI_TASK_BACKEND === "tmux" ||
+        process.env.PI_TASK_USE_TMUX_BACKEND === "1";
+      const forceSdkBackend =
+        process.env.PI_TASK_BACKEND === "sdk" ||
+        process.env.PI_TASK_USE_SDK_BACKEND === "1";
+      const tmuxAvailable = hasTmux();
+      const useSdkBackend =
+        forceSdkBackend || (!forceTmuxBackend && !tmuxAvailable);
+
       const toolSelection = buildAgentToolSelection({
         tools: agent.tools,
         disallowedTools: agent.disallowedTools,
@@ -1088,8 +1118,10 @@ export default function (pi: ExtensionAPI) {
         ensureTaskWidget(ctx);
       }
 
-      // Prefer tmux for observability, but fall back to the SDK in headless/CI/RPC.
-      if (!hasTmux()) {
+      // Prefer tmux when the parent Pi is running inside tmux so users can watch
+      // the subagent's interactive Pi TUI. Fall back to the SDK only when tmux is
+      // unavailable, or when explicitly forced with PI_TASK_BACKEND=sdk.
+      if (useSdkBackend) {
         if (isBackground) {
           const bgtask: BackgroundTask = {
             dir: artifactsDir,
@@ -1154,21 +1186,19 @@ export default function (pi: ExtensionAPI) {
             content: [
               {
                 type: "text" as const,
-                text: `Task ${id} started with SDK backend (tmux unavailable).`,
+                text: `Task ${id} started with SDK backend.`,
               },
             ],
-            details: {
-              task_id: id,
-              background: true,
-              backend: "sdk" as const,
-              result_path: resultPath,
-              conversation_id: conversationId,
-            },
-          };
-        }
+                details: {
+                  task_id: id,
+                  background: true,
+                  conversation_id: conversationId,
+                },
+              };
+            }
 
-        try {
-          const { output, sessionPath } = await runSdkFallback();
+            try {
+              const { output, sessionPath } = await runSdkFallback();
           const finalOutput =
             output || "SDK subagent completed without assistant text.";
           if (conversationId) {
@@ -1182,15 +1212,14 @@ export default function (pi: ExtensionAPI) {
               result: finalOutput,
             });
           }
-          return {
-            content: [{ type: "text" as const, text: finalOutput }],
-            details: {
-              phase: "done" as const,
-              backend: "sdk" as const,
-              session_path: sessionPath,
-              result_path: resultPath,
-              conversation_id: conversationId,
-            },
+              return {
+                content: [{ type: "text" as const, text: finalOutput }],
+                details: {
+                  phase: "done" as const,
+                  backend: "sdk" as const,
+                  session_path: sessionPath,
+                  conversation_id: conversationId,
+                },
           };
         } catch (error) {
           const message =
@@ -1213,16 +1242,19 @@ export default function (pi: ExtensionAPI) {
       }
 
       const shellCommand = `${envPrefix} pi ${piArgs.map((a) => shellQuote(a)).join(" ")}`;
+          const sessionFile = join(sessionDir, sessionName + ".jsonl");
+          const tmuxCommand = wrapWithPaneExitWatcher(
+            sessionFile,
+        `cd ${shellQuote(ctx.cwd)} && ${shellCommand}`,
+      );
 
       let paneId: string;
       let originalPane: string | null;
       try {
-        const splitResult = splitWindowPane(
-          ctx.cwd,
-          `cd ${shellQuote(ctx.cwd)} && ${shellCommand}`,
-        );
+        const splitResult = splitWindowPane(ctx.cwd, tmuxCommand);
         paneId = splitResult.paneId;
         originalPane = splitResult.originalPane;
+        setPaneRemainOnExit(paneId, true);
         if (foregroundTask) {
           foregroundTask.paneId = paneId;
           foregroundTask.originalPane = originalPane;
@@ -1259,8 +1291,31 @@ export default function (pi: ExtensionAPI) {
           background: false,
         });
 
+        // Poll tool-call progress while waiting for completion
+        let lastToolCalls = -1;
+        const onAbort = () => clearInterval(toolProgressInterval);
+        const toolProgressInterval = setInterval(() => {
+          try {
+            const stats = countToolUses(sessionDir, sessionName);
+            if (stats.toolUses > 0 && stats.toolUses !== lastToolCalls) {
+              lastToolCalls = stats.toolUses;
+              _onUpdate?.({
+                content: [
+                  {
+                    type: "text",
+                    text: `${stats.toolUses} tool call${stats.toolUses !== 1 ? "s" : ""}`,
+                  },
+                ],
+                details: { toolCalls: stats.toolUses },
+              });
+            }
+          } catch {
+            // session file may not exist yet
+          }
+        }, COUNT_POLL_MS);
+        signal?.addEventListener("abort", onAbort, { once: true });
+
         const completion = await waitForSessionTaskCompletion({
-          resultPath,
           sessionDir,
           sessionName,
           paneId,
@@ -1269,6 +1324,8 @@ export default function (pi: ExtensionAPI) {
           pollMs: 1000,
           sinceMs: startedAt,
         });
+        clearInterval(toolProgressInterval);
+        signal?.removeEventListener("abort", onAbort);
         const content = completion.content;
         const phase =
           completion.status === "completed"
@@ -1296,7 +1353,9 @@ export default function (pi: ExtensionAPI) {
           completedAt: Date.now(),
           background: false,
         });
-        killAgentPane(paneId, originalPane);
+        if (phase === "done") {
+          killAgentPane(paneId, originalPane);
+        }
         foregroundTasks.delete(id);
         clearTaskWidgetIfIdle();
 
@@ -1316,37 +1375,31 @@ export default function (pi: ExtensionAPI) {
         const durationMs = Date.now() - startedAt;
         const { toolUses, turns } = countToolUses(sessionDir, sessionName);
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: [
-                `${parsed.status || "done"}: ${parsed.summary || content.slice(0, 300)}`,
-                toolUses > 0 ? `\n${toolUses} toolcalls` : "",
-                durationMs >= 1000 ? `\n${formatMs(durationMs)}` : "",
-              ]
-                .filter(Boolean)
-                .join(""),
-            },
-          ],
-          details: {
-            task_id: id,
-            agent_type: agent.name,
-            description: descText,
-            phase,
-            status: phase === "done" ? parsed.status || "done" : phase,
-            summary: parsed.summary || "",
-            findings: parsed.findings || "",
-            evidence: parsed.evidence || "",
-            confidence: parsed.confidence || "",
-            duration_ms: durationMs,
-            tool_uses: toolUses,
-            turn_count: turns,
-            background: false,
-            conversation_id: conversationId,
-          },
-        };
-      }
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: parsed.summary || content.trim(),
+                },
+              ],
+              details: {
+                task_id: id,
+                agent_type: agent.name,
+                description: descText,
+                phase,
+                status: "done",
+                summary: parsed.summary || "",
+                findings: parsed.findings || "",
+                evidence: parsed.evidence || "",
+                confidence: parsed.confidence || "",
+                duration_ms: durationMs,
+                tool_uses: toolUses,
+                turn_count: turns,
+                background: false,
+                conversation_id: conversationId,
+              },
+            };
+          }
 
       // ── BACKGROUND MODE (default): add to tracker, return immediately ─────
 
@@ -1503,33 +1556,45 @@ export default function (pi: ExtensionAPI) {
         ? " " + theme.fg("dim", statsParts.join(" • "))
         : "";
 
-      const icon = isError ? theme.fg("error", "x") : theme.fg("success", "✓");
-      const statusLabel = d.status && d.status !== "done" ? d.status : "done";
-      let line =
-        icon +
-        " " +
-        theme.fg(isError ? "error" : "success", statusLabel) +
-        statsStr;
+          const icon = isError ? theme.fg("error", "x") : theme.fg("success", "✓");
+          const statusLabel = d.status && d.status !== "done" ? d.status : "done";
+          let line =
+            icon +
+            " " +
+            theme.fg(isError ? "error" : "success", statusLabel) +
+            statsStr;
 
-      if (expanded) {
-        const s = d.summary || "";
-        const f = d.findings || "";
-        const e = d.evidence || "";
-        if (s) line += "\n" + theme.fg("muted", s);
-        if (f) line += "\n" + theme.fg("dim", f);
-        if (e)
-          line += "\n" + theme.fg("muted", "Evidence: ") + theme.fg("dim", e);
-      } else {
-        const preview = (d.summary || "").slice(0, 80);
-        if (preview) line += "\n" + theme.fg("dim", `  ⎿  ${preview}`);
-        else
-          line +=
-            "\n" +
-            theme.fg("dim", `  ⎿  ${isError ? d.status || "error" : "Done"}`);
-      }
+          // Pull the full final message from content[0].text. The summary
+          // field is only the first 500 chars and loses most of the result.
+          const firstContent = result.content?.[0];
+          const fullText =
+            firstContent && "text" in firstContent
+              ? (firstContent.text ?? "").trim()
+              : "";
+          const preview = fullText.slice(0, 120);
+          const expandHint = keyHint("app.tools.expand", "to expand");
+          const collapseHint = keyHint("app.tools.expand", "to collapse");
 
-      return new Text(line, 0, 0);
-    },
+          if (expanded) {
+            // Expanded: show the FULL message line-by-line. No truncation.
+            if (fullText) line += "\n" + theme.fg("muted", fullText);
+            line += "\n" + theme.fg("dim", `  (${collapseHint})`);
+          } else {
+            if (preview) {
+              line += "\n" + theme.fg("dim", `  ⎿  ${preview}`) +
+                (fullText.length > 120 ? theme.fg("dim", "…") : "");
+            } else {
+              line +=
+                "\n" +
+                theme.fg("dim", `  ⎿  ${isError ? d.status || "error" : "Done"}`);
+            }
+            if (fullText.length > 120) {
+              line += "\n" + theme.fg("dim", `  (${expandHint})`);
+            }
+          }
+
+          return new Text(line, 0, 0);
+        },
   });
 
   pi.registerCommand("task-sessions", {

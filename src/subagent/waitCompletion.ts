@@ -1,9 +1,10 @@
-import { readFile } from "node:fs/promises";
-    import { existsSync } from "node:fs";
-    import { getLastAssistantTextFromSessionDir } from "../session-text.js";
-    import { paneExists } from "./tmux.js";
+import {
+  getLastAssistantTextFromSessionDir,
+  hasAgentFinished,
+} from "../session-text.js";
+import { paneExists } from "./tmux.js";
 
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export type TaskCompletionStatus =
   | "running"
@@ -15,91 +16,76 @@ export type TaskCompletionStatus =
 export interface TaskCompletionSnapshot {
   status: TaskCompletionStatus;
   content: string;
-  source?: "result-file" | "session-jsonl" | "pane" | "timeout" | "signal";
+  source?: "session-jsonl" | "pane" | "timeout" | "signal";
 }
 
-export interface TaskCompletionOptions {
-  resultPath: string;
+export interface WaitForTaskCompletionOptions {
   sessionDir: string;
   sessionName: string;
   paneId?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
-      pollMs?: number;
-      sinceMs?: number;
-    }
+  pollMs?: number;
+  sinceMs?: number;
+}
 
-async function readResultFile(resultPath: string): Promise<string | null> {
-  if (!existsSync(resultPath)) return null;
-  const text = (await readFile(resultPath, "utf-8")).trim();
+/**
+ * v0.1.6: The subagent's final assistant message from the auto-saved
+ * persistent JSONL session IS the result. No RESULT.md, no agent instructions
+ * to write a file. Completion is gated by the assistant's terminal
+ * `stopReason` (not `toolUse`, not streaming text).
+ */
+function readSessionText(
+  sessionDir: string,
+  sessionName: string,
+  sinceMs?: number,
+): string | null {
+  if (!hasAgentFinished(sessionDir, sessionName, sinceMs)) return null;
+  const text = getLastAssistantTextFromSessionDir(
+    sessionDir,
+    sessionName,
+    sinceMs,
+  ).trim();
   return text.length > 0 ? text : null;
 }
 
-        function readSessionText(
-          sessionDir: string,
-          sessionName: string,
-          sinceMs?: number,
-        ): string | null {
-      // Session files are written by pi directly into `sessionDir`
-      // (flat). Filter by session_info.name so a new task never
-      // completes from an older task's JSONL.
-          const text = getLastAssistantTextFromSessionDir(
-            sessionDir,
-            sessionName,
-            sinceMs,
-          ).trim();
-      return text.length > 0 ? text : null;
-    }
-    
-        export async function checkTaskCompletion(
-          options: TaskCompletionOptions,
-        ): Promise<TaskCompletionSnapshot> {
-              // When the pane has exited, give pi a brief moment to flush the
-              // session file. Without this, the read can catch a partial
-              // file (e.g. the last `agent_end` / `message_end` events not
-              // yet written) and report "failed" even though the subagent
-              // completed successfully.
-              if (options.paneId && !paneExists(options.paneId)) {
-                await sleep(500);
-              }
-
-              const result = await readResultFile(options.resultPath);
-              if (result) {
-                return { status: "completed", content: result, source: "result-file" };
-              }
-
-              // Check session text FIRST. If the subagent's session file has
-              // its final assistant message, the subagent is done — kill the
-              // pane and return, regardless of whether the pane shell is
-              // still open (e.g. remain-on-exit on, or the command exited but
-              // tmux kept the shell alive).
-          const sessionResult = readSessionText(
-            options.sessionDir,
-            options.sessionName,
-            options.sinceMs,
-          );
-          if (sessionResult) {
-            return { status: "completed", content: sessionResult, source: "session-jsonl" };
-          }
-
-          // No session text yet. If the pane is gone and we never got
-          // session text, the subagent failed.
-          if (options.paneId && !paneExists(options.paneId)) {
-            return { status: "failed", content: "Subagent pane exited without producing a result." };
-          }
-
-          // Pane still exists and no session text yet — keep polling.
-          return { status: "running", content: "", source: "pane" };
-        }
-
-    export async function waitForTaskCompletion(
-  options: TaskCompletionOptions,
+export async function checkTaskCompletion(
+  options: Omit<WaitForTaskCompletionOptions, "signal" | "timeoutMs" | "pollMs">,
 ): Promise<TaskCompletionSnapshot> {
+  // If the pane has exited, give pi a brief moment to flush JSONL.
+  if (options.paneId && !paneExists(options.paneId)) {
+    await sleep(500);
+  }
+
+  // Session JSONL is the single authoritative completion source.
+  const sessionResult = readSessionText(
+    options.sessionDir,
+    options.sessionName,
+    options.sinceMs,
+  );
+  if (sessionResult) {
+    return { status: "completed", content: sessionResult, source: "session-jsonl" };
+  }
+
+  // No terminal assistant message yet. If the pane is alive, keep waiting.
+  if (options.paneId && paneExists(options.paneId)) {
+    return { status: "running", content: "", source: "pane" };
+  }
+
+  return {
+    status: "failed",
+    content: "Subagent pane exited without producing a result.",
+  };
+}
+
+export async function waitForTaskCompletion(
+  options: WaitForTaskCompletionOptions,
+): Promise<TaskCompletionSnapshot> {
+  const started = Date.now();
   const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
   const pollMs = options.pollMs ?? 1000;
-  const deadline = Date.now() + timeoutMs;
 
-  while (true) {
+  while (Date.now() - started < timeoutMs) {
     if (options.signal?.aborted) {
       return {
         status: "cancelled",
@@ -110,15 +96,12 @@ async function readResultFile(resultPath: string): Promise<string | null> {
 
     const snapshot = await checkTaskCompletion(options);
     if (snapshot.status !== "running") return snapshot;
-
-    if (Date.now() >= deadline) {
-      return {
-        status: "timeout",
-        content: `Task timed out after ${Math.round(timeoutMs / 1000)}s without producing a result.`,
-        source: "timeout",
-      };
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    await sleep(pollMs);
   }
+
+  return {
+    status: "timeout",
+    content: `Task timed out after ${Math.round(timeoutMs / 1000)}s without producing a result.`,
+    source: "timeout",
+  };
 }
