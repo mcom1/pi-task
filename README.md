@@ -4,13 +4,11 @@ Delegating task/subagent extension for [Pi](https://pi.dev). It adds a `task` to
 
 ## Demo
 
-[▶ Watch the 89s background-task walkthrough](https://github.com/heyhuynhgiabuu/pi-task/releases/download/v0.2.0/demo-background-task.mp4)
+![pi-task background task demo](./media/demo-background-task.webp)
 
-<video src="https://github.com/heyhuynhgiabuu/pi-task/releases/download/v0.2.0/demo-background-task.mp4" controls width="100%" poster="https://raw.githubusercontent.com/heyhuynhgiabuu/pi-task/main/media/demo.png"></video>
+_Auto-playing preview of the 89s walkthrough (1 fps): spawning a background subagent in a tmux pane, watching the live tool-call progress in the parent pane, and reading the final result via the session JSONL._
 
-_89-second walkthrough: spawning a background subagent in a tmux pane, watching the live tool-call progress in the parent pane, and reading the final result via the session JSONL._
-
-![pi-task TUI](https://raw.githubusercontent.com/heyhuynhgiabuu/pi-task/main/media/demo.png)
+For the full high-quality 89s @ 56 fps version, [download the MP4](https://github.com/heyhuynhgiabuu/pi-task/releases/download/v0.2.0/demo-background-task.mp4).
 
 ## Features
 
