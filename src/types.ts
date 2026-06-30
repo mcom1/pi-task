@@ -44,7 +44,7 @@ export interface TaskDetails {
   agent_type: string;
   description: string;
   conversation_id?: string;
-  phase: "done" | "timeout" | "aborted" | "failed";
+  phase: "running" | "done" | "timeout" | "aborted" | "failed";
   status?: string;
   summary?: string;
   findings?: string;
@@ -54,5 +54,6 @@ export interface TaskDetails {
   turn_count?: number;
   tool_uses?: number;
   background?: boolean;
+  backend?: "sdk" | "tmux";
   tmux_session?: string;
 }
