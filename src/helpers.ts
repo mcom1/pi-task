@@ -58,6 +58,7 @@ export interface ParsedResult {
   summary: string;
   findings: string;
   evidence: string;
+  files: string;
   confidence: string;
   raw: string;
 }
@@ -83,6 +84,25 @@ export const TASK_PROMPT_INSTRUCTIONS = `Your final assistant message IS the res
 When you are done, end your final assistant message with a clear, self-contained summary in plain text. Do not wrap it in XML tags. Do not write a RESULT.md file — the parent agent reads your final assistant message from the session JSONL, not from any file.`;
 
 export const OUTPUT_FORMAT_GUIDE = TASK_PROMPT_INSTRUCTIONS;
+
+/**
+ * XML envelope for the task result. The parent agent parses the child
+ * subagent's final message with `parseResultXml`, which reads `<status>`,
+ * `<summary>`, `<findings>`, `<evidence>`, and `<files>` tags. Append
+ * this to the child prompt so the child knows to wrap its final result
+ * in these tags (the parent then extracts them into the result section).
+ */
+export const TASK_RESULT_XML_INSTRUCTIONS = `When the task is complete, wrap the final result in this XML envelope and nothing after the closing tag:
+
+<status>done | failed | timeout</status>
+<summary>One-line summary of the outcome.</summary>
+<findings>Key findings the parent should know about. Plain text, multiple lines OK.</findings>
+<evidence>File:line citations, command output snippets, or other supporting evidence.</evidence>
+<files>Comma-separated list of files you created or modified. Leave empty if none.</files>
+<confidence>high | medium | low</confidence>
+
+The parent agent parses this envelope to populate the result section. Do not add commentary after the closing </confidence> tag.`;
+
 
 export const TASK_TOOL_DESCRIPTION = `Launch a new agent to handle complex, multistep tasks autonomously.
 
@@ -117,10 +137,13 @@ export { ALL_TOOL_NAMES, BUILTIN_TOOL_NAMES } from "./agent-tools.js";
 
 // Cached regex patterns for XML result parsing
 const STATUS_RE = /<status>([\s\S]*?)<\/status>/i;
+const DEFAULT_DISALLOWED_TOOLS = ["xai_web_search", "xai_generate_text"];
 const SUMMARY_RE = /<summary>([\s\S]*?)<\/summary>/i;
 const FINDINGS_RE = /<findings>([\s\S]*?)<\/findings>/i;
 const EVIDENCE_RE = /<evidence>([\s\S]*?)<\/evidence>/i;
+const FILES_RE = /<files>([\s\S]*?)<\/files>/i;
 const CONFIDENCE_RE = /<confidence>([\s\S]*?)<\/confidence>/i;
+const PLAIN_SUMMARY_MAX_CHARS = 500;
 
 // ─── Result Parsing ──────────────────────────────────────────────────────────
 
@@ -138,11 +161,16 @@ export function parseResultXml(raw: string): ParsedResult {
     !extractTag(raw, FINDINGS_RE) &&
     !extractTag(raw, EVIDENCE_RE)
   ) {
+    const trimmed = raw.trim();
     return {
       status: "unknown",
-      summary: raw.trim(),
+      summary:
+        trimmed.length > PLAIN_SUMMARY_MAX_CHARS
+          ? trimmed.slice(0, PLAIN_SUMMARY_MAX_CHARS)
+          : trimmed,
       findings: "",
       evidence: "",
+      files: "",
       confidence: "",
       raw,
     };
@@ -155,6 +183,7 @@ export function parseResultXml(raw: string): ParsedResult {
     summary: extractTag(raw, SUMMARY_RE) || "",
     findings: extractTag(raw, FINDINGS_RE) || "",
     evidence: extractTag(raw, EVIDENCE_RE) || "",
+    files: extractTag(raw, FILES_RE) || "",
     confidence: confidence || "",
     raw,
   };
@@ -285,9 +314,13 @@ export function loadAgentsFromDir(
       | string
       | string[]
       | undefined;
-    const merged = parseMergedDisallowedTools(
-      parseToolList(disallowedRaw).join(","),
-    );
+    // Always-on xAI disallow list — these tools are never useful for
+    // task subagents and risk leaking provider-specific behavior.
+    const withDefaults = [
+      ...parseToolList(disallowedRaw),
+      ...DEFAULT_DISALLOWED_TOOLS,
+    ];
+    const merged = parseMergedDisallowedTools(withDefaults.join(","));
     const disallowedTools = merged.length > 0 ? merged : undefined;
     const tools = parseToolList(
       frontmatter.tools as string | string[] | undefined,

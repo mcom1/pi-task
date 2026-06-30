@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { findJsonlSessionByName, readRegistry, upsertTaskSessionHistory, writeRegistry } from "../conversation.js";
 import { parseResultXml } from "../helpers.js";
 import { killAgentPane } from "../subagent/tmux.js";
+import { ignoreStaleExtensionCtx } from "../stale-ctx.js";
 import type { BackgroundTask } from "../types.js";
 
 export function completeTask(
@@ -39,30 +40,32 @@ export function completeTask(
     background: true,
   });
 
-  pi.sendMessage(
-    {
-      customType: "task-complete",
-      content: `Background task ${id} (${task.agentType}) ${phase}.\n\nResult:\n${content}`,
-      display: true,
-      details: {
-        task_id: id,
-        agent_type: task.agentType,
-        description: task.description,
-        phase,
-        status: phase,
-        result: content,
-        summary: parsed.summary,
-        findings: parsed.findings,
-        confidence: parsed.confidence,
-        duration_ms: durationMs,
-        tool_uses: task.toolUses,
-        turn_count: task.turns,
+  ignoreStaleExtensionCtx(() =>
+    pi.sendMessage(
+      {
+        customType: "task-complete",
+        content: `Background task ${id} (${task.agentType}) ${phase}.\n\nResult:\n${content}`,
+        display: true,
+        details: {
+          task_id: id,
+          agent_type: task.agentType,
+          description: task.description,
+          phase,
+          status: phase,
+          result: content,
+          summary: parsed.summary,
+          findings: parsed.findings,
+          confidence: parsed.confidence,
+          duration_ms: durationMs,
+          tool_uses: task.toolUses,
+          turn_count: task.turns,
+        },
       },
-    },
-    {
-      triggerTurn: true,
-      deliverAs: "followUp",
-    },
+      {
+        triggerTurn: true,
+        deliverAs: "followUp",
+      },
+    ),
   );
 
   const entries = readRegistry(piDir).filter((entry) => entry.id !== id);

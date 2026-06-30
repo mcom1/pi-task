@@ -1,8 +1,17 @@
 import { join } from "node:path";
 
-/**
- * Background polling logic for task completion.
- * This module encapsulates the interval-based checking of background tasks.
+/*
+  Background polling logic for task completion.
+  This module encapsulates the interval-based checking of background tasks.
+
+  Disposal contract:
+  - `startBackgroundPolling` returns a `stopPolling` function.
+  - Calling it sets an internal `disposed` flag AND clears the interval.
+  - A scheduled-but-not-yet-started tick sees the flag at the top of the
+    IIFE and returns immediately, so it never touches the captured `pi`.
+  - This closes the race where a tick scheduled before `session_shutdown`
+    fires after the runtime is torn down and triggers
+    "This extension ctx is stale after session replacement or reload."
  */
 
 export interface PollingDeps {
@@ -26,7 +35,10 @@ export interface PollingDeps {
 
 let checkInFlight = false;
 
-export function startBackgroundPolling(deps: PollingDeps, intervalMs: number) {
+export function startBackgroundPolling(
+  deps: PollingDeps,
+  intervalMs: number,
+): () => void {
   const {
     backgroundTasks,
     checkTaskCompletion,
@@ -39,7 +51,10 @@ export function startBackgroundPolling(deps: PollingDeps, intervalMs: number) {
     pi,
   } = deps;
 
-  return setInterval(async () => {
+  let disposed = false;
+
+  const handle = setInterval(async () => {
+    if (disposed) return;
     if (checkInFlight) return;
     if (backgroundTasks.size === 0) {
       clearTaskWidgetIfIdle();
@@ -91,7 +106,7 @@ export function startBackgroundPolling(deps: PollingDeps, intervalMs: number) {
               task,
               `Task ${id} polling failed ${task.pollErrors}x; last error: ${message}`,
               "failed",
-              piDir,
+              piDir
             );
           }
           continue;
@@ -112,4 +127,10 @@ export function startBackgroundPolling(deps: PollingDeps, intervalMs: number) {
       checkInFlight = false;
     }
   }, intervalMs);
+
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    clearInterval(handle);
+  };
 }

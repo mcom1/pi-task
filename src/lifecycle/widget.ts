@@ -6,6 +6,7 @@ import {
   renderTaskWidget,
   type ThemeLike,
 } from "../task-widget.js";
+import { ignoreStaleExtensionCtx } from "../stale-ctx.js";
 import type { BackgroundTask } from "../types.js";
 
 export interface TaskWidgetController {
@@ -59,28 +60,31 @@ export function createTaskWidgetController(
   function ensureTaskWidget(targetCtx: ExtensionContext): void {
     if (widgetCtx || targetCtx.mode !== "tui") return;
     widgetCtx = targetCtx;
-    targetCtx.ui.setWidget("task", (tui, theme) => {
-      widgetTheme = theme ?? null;
-      widgetTimer = setInterval(
-        () => tui.requestRender(),
-        TASK_WIDGET_RENDER_MS,
-      );
-      widgetTimer.unref?.();
-      return {
-        render: (width: number) => renderWidget(width),
-        invalidate: () => {},
-        dispose: () => {
-          widgetTheme = null;
-          stopWidget();
-        },
-      };
-    });
+    ignoreStaleExtensionCtx(() =>
+      targetCtx.ui.setWidget("task", (tui, theme) => {
+        widgetTheme = theme ?? null;
+        widgetTimer = setInterval(
+          () => tui.requestRender(),
+          TASK_WIDGET_RENDER_MS,
+        );
+        widgetTimer.unref?.();
+        return {
+          render: (width: number) => renderWidget(width),
+          invalidate: () => {},
+          dispose: () => {
+            widgetTheme = null;
+            stopWidget();
+          },
+        };
+      }),
+    );
   }
 
   function clearTaskWidgetIfIdle(): void {
     if (foregroundTasks.size > 0 || backgroundTasks.size > 0) return;
     if (widgetCtx) {
-      widgetCtx.ui.setWidget("task", undefined);
+      const ctx = widgetCtx;
+      ignoreStaleExtensionCtx(() => ctx.ui.setWidget("task", undefined));
       widgetCtx = null;
     }
     stopWidget();
@@ -88,7 +92,8 @@ export function createTaskWidgetController(
 
   function dispose(): void {
     if (widgetCtx) {
-      widgetCtx.ui.setWidget("task", undefined);
+      const ctx = widgetCtx;
+      ignoreStaleExtensionCtx(() => ctx.ui.setWidget("task", undefined));
       widgetCtx = null;
     }
     widgetTheme = null;

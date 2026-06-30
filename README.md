@@ -74,21 +74,19 @@ Durable specialist conversation:
         to keep specialist memory, e.g. a reusable research assistant.
         Use `/task-sessions` to list known durable conversations.
 
-        Stored files (all flat at the top of `.pi/artifacts/`, no
-        per-task subdirs):
+        Stored files:
 
         ```
-        .pi/artifacts/TASKS.md              # one ### <task-id> block per task
-        .pi/artifacts/task-sessions.json    # conversation_id -> { task_id, session_file }
+        .pi/artifacts/task-sessions.json          # conversation_id -> { task_id }
+        .pi/artifacts/sessions/<task-id>/*.jsonl  # subagent session transcript/result
+        .pi/task-registry.json                    # active background tasks
+        .pi/task-session-history.json             # task status and session metadata
         ```
 
-        The subagent's session is auto-saved by pi at
-        `~/.pi/agent/sessions/<cwd>/<session-id>.jsonl`. pi-task reads
-        the last assistant message from there to populate
-        `#### Result` in `TASKS.md`. The subagent's final message IS
+        The subagent's final assistant message in the task JSONL session is
         the result; no separate result file is required.
 
-    Note: true conversation resume requires the tmux/CLI backend so Pi can reopen the saved subagent session. SDK fallback can run one-shot tasks, but it cannot resume a prior Pi session.
+    Note: true conversation resume requires the tmux/CLI backend so Pi can reopen the saved subagent session. SDK fallback can run foreground or background one-shot tasks, but it cannot resume a prior Pi session.
 
 ## Agent precedence
 

@@ -969,41 +969,91 @@ import {
   }
 }
 
+{
+  const t = "envelope produced per instructions is parseable end-to-end";
+  // Simulate the child subagent emitting exactly the format the
+  // instructions tell it to produce. Every tag must be extracted by
+  // parseResultXml — no silent drops, no half-parses.
+  const childOutput = `<status>done</status>
+<summary>Found the auth flow in src/auth/index.ts:42</summary>
+<findings>OAuth2 PKCE flow
+  Token refresh on /refresh
+  JWT validation in middleware</findings>
+<evidence>src/auth/index.ts:42-80
+src/middleware/jwt.ts:15-30</evidence>
+<files>src/auth/index.ts,src/middleware/jwt.ts</files>
+<confidence>high</confidence>`;
+
+  const parsed = parseResultXml(childOutput);
+  assert.equal(parsed.status, "done", `${t}: status`);
+  assert.equal(
+    parsed.summary,
+    "Found the auth flow in src/auth/index.ts:42",
+    `${t}: summary`,
+  );
+  assert.ok(
+    parsed.findings.includes("OAuth2 PKCE flow"),
+    `${t}: findings`,
+  );
+  assert.ok(
+    parsed.evidence.includes("src/auth/index.ts:42-80"),
+    `${t}: evidence`,
+  );
+  assert.equal(
+    parsed.files,
+    "src/auth/index.ts,src/middleware/jwt.ts",
+    `${t}: files`,
+  );
+  assert.equal(parsed.confidence, "high", `${t}: confidence`);
+}
+
 console.log("ALL TASK HELPER TESTS PASSED");
 
             {
-              const { readTaskBlock, writeTaskBlock, listTaskBlocks, getTasksFilePath } =
-                await import("../src/conversation.js");
+              const {
+                readTaskSessionsRegistry,
+                writeTaskSessionsRegistry,
+                readTaskSessionHistory,
+                upsertTaskSessionHistory,
+              } = await import("../src/conversation.js");
               const os = await import("node:os");
               const fs = await import("node:fs/promises");
               const { join } = await import("node:path");
               const tmpDir = await fs.mkdtemp(join(os.tmpdir(), "pitask-test-"));
               try {
-                // Initially empty.
-                assert.equal(listTaskBlocks(tmpDir).size, 0);
-                assert.equal(readTaskBlock(tmpDir, "abc123"), undefined);
-
-                // Write a block, then read it back.
-                writeTaskBlock({
-                  piDir: tmpDir,
-                  taskId: "abc123",
-                  status: "done",
-                  updated: "2026-06-23T00:00:00.000Z",
-                  body: "#### Result\n\nhello",
+                assert.deepEqual(readTaskSessionsRegistry(tmpDir), {});
+                writeTaskSessionsRegistry(tmpDir, {
+                  "research-ai": {
+                    task_id: "abc123-def",
+                    updated_at: "2026-06-23T00:00:00.000Z",
+                  },
                 });
-                const block = readTaskBlock(tmpDir, "abc123");
-                assert.equal(block?.status, "done");
-                assert.ok(block?.body.includes("hello"));
-
-                // listTaskBlocks returns the same block.
-                const all = listTaskBlocks(tmpDir);
-                assert.equal(all.size, 1);
-                assert.ok(all.has("abc123"));
-
-                // TASKS.md file exists at the expected path.
-                assert.ok(
-                  (await fs.stat(getTasksFilePath(tmpDir))).isFile(),
+                assert.equal(
+                  readTaskSessionsRegistry(tmpDir)["research-ai"]?.task_id,
+                  "abc123-def",
                 );
+
+                assert.deepEqual(readTaskSessionHistory(tmpDir), []);
+                upsertTaskSessionHistory(tmpDir, {
+                  id: "abc123-def",
+                  status: "running",
+                  background: true,
+                  agentType: "scout",
+                  description: "Research",
+                  startedAt: 1,
+                  piDir: tmpDir,
+                  dir: tmpDir,
+                  sessionName: "task-abc123-def",
+                });
+                upsertTaskSessionHistory(tmpDir, {
+                  id: "abc123-def",
+                  status: "done",
+                  completedAt: 2,
+                });
+                const history = readTaskSessionHistory(tmpDir);
+                assert.equal(history.length, 1);
+                assert.equal(history[0]?.status, "done");
+                assert.equal(history[0]?.agentType, "scout");
               } finally {
                 await fs.rm(tmpDir, { recursive: true, force: true });
               }
@@ -1012,9 +1062,5 @@ console.log("ALL TASK HELPER TESTS PASSED");
     {
       const { normalizeConversationId } = await import("../src/conversation.js");
       assert.equal(normalizeConversationId(" research-ai "), "research-ai");
-              assert.equal(normalizeConversationId(undefined), undefined);
-              assert.throws(
-                () => normalizeConversationId("research/ai"),
-                    /conversation_id/,
-                  );
-            }
+      assert.equal(normalizeConversationId("research/ai"), "research-ai");
+    }

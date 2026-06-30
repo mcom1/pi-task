@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
-import { readRegistry, writeRegistry } from "../conversation.js";
-import { paneExists } from "../subagent/tmux.js";
+import {
+  readRegistry,
+  upsertTaskSessionHistory,
+  writeRegistry,
+} from "../conversation.js";
+import { hasAgentFinished } from "../session-text.js";
+import { killAgentPane, paneExists } from "../subagent/tmux.js";
 import type { BackgroundTask } from "../types.js";
 
 export function restoreActiveBackgroundTasks(
@@ -16,8 +21,48 @@ export function restoreActiveBackgroundTasks(
       continue;
     }
 
+    const sessionFinished = hasAgentFinished(
+      entry.dir,
+      entry.sessionName,
+      entry.startedAt,
+    );
     const paneAlive = entry.paneId ? paneExists(entry.paneId) : false;
+
+    if (sessionFinished) {
+      upsertTaskSessionHistory(piDir, {
+        id: entry.id,
+        status: "done",
+        background: true,
+        agentType: entry.agentType,
+        description: entry.description,
+        sessionName: entry.sessionName,
+        startedAt: entry.startedAt,
+        piDir: entry.piDir,
+        dir: entry.dir,
+        paneId: entry.paneId,
+        completedAt: Date.now(),
+      });
+      if (paneAlive && entry.paneId) {
+        killAgentPane(entry.paneId, null);
+      }
+      staleIds.push(entry.id);
+      continue;
+    }
+
     if (!paneAlive) {
+      upsertTaskSessionHistory(piDir, {
+        id: entry.id,
+        status: "failed",
+        background: true,
+        agentType: entry.agentType,
+        description: entry.description,
+        sessionName: entry.sessionName,
+        startedAt: entry.startedAt,
+        piDir: entry.piDir,
+        dir: entry.dir,
+        paneId: entry.paneId,
+        completedAt: Date.now(),
+      });
       staleIds.push(entry.id);
       continue;
     }
