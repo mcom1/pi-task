@@ -4,6 +4,38 @@ All notable changes to `@heyhuynhgiabuu/pi-task` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-07-01
+
+### Added
+
+- **`background: true` support for SDK backend.** The Pi task tool now
+  accepts `background: true` when running inside the SDK (non-tmux
+  backend). The subagent's `AgentSession` lives in the host's process;
+  its subscriptions and extension context stay valid as long as the
+  parent session is alive, which is what OpenPi's sidecar guarantees.
+- **`stale-ctx` filtering.** `extension_error` events that come from
+  a Promise rejection whose message mentions "this extension ctx is
+  stale" are now swallowed before the UI sees them. The host's
+  session-replacement path was triggering a benign race during reload.
+- **Task-session-history helpers.** New `task-session-history.json`
+  is the source of truth for runtime task status. The renderer no
+  longer reads `TASKS.md` for status or navigation.
+- **Cancelled foreground navigation is normalized.** A click on a
+  pending task row no longer aborts the running child; the row stays
+  unclickable until the task settles.
+
+### Fixed
+
+- **`reload_session` no longer leaks extension timers.** The sidecar
+  now does a full session replacement (dispose + startSession) on
+  reload, which atomically destroys the old runner and its timers.
+- **Background tmux panes self-destruct on exit.** Pane
+  `remain-on-exit` and `setPaneSelfDestruct` are set so dead tasks
+  don't accumulate.
+- **Restore reconciles registry with JSONL.** On startup,
+  `restoreActiveBackgroundTasks` walks the registry and the
+  per-task JSONL, marking tasks done/failed and killing stale panes.
+
 ## [0.2.0] — 2026-06-25
 
 ### Changed
