@@ -1,4 +1,4 @@
-import { TASK_PROMPT_INSTRUCTIONS } from "../helpers.js";
+import { TASK_PROMPT_INSTRUCTIONS, TASK_RESULT_XML_INSTRUCTIONS } from "../helpers.js";
 
 export interface BuildTaskPromptOptions {
   description: string;
@@ -22,5 +22,7 @@ export function buildTaskPrompt(options: BuildTaskPromptOptions): string {
     options.cwd,
     "",
     TASK_PROMPT_INSTRUCTIONS,
+    "",
+    TASK_RESULT_XML_INSTRUCTIONS,
   ].join("\n");
 }
