@@ -1,5 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { findJsonlSessionByName, readRegistry, upsertTaskSessionHistory, writeRegistry } from "../conversation.js";
+import {
+  findJsonlSessionByName,
+  readRegistry,
+  upsertTaskSessionHistory,
+  writeRegistry,
+} from "../conversation.js";
 import { parseResultXml } from "../helpers.js";
 import { killAgentPane } from "../subagent/tmux.js";
 import { ignoreStaleExtensionCtx } from "../stale-ctx.js";
@@ -13,7 +18,6 @@ export function completeTask(
   phase: "done" | "timeout" | "failed",
   piDir: string,
 ): void {
-  // Kill the tmux pane if still alive.
   if (task.paneId) killAgentPane(task.paneId, task.originalPane);
 
   const parsed = parseResultXml(content);
@@ -44,7 +48,7 @@ export function completeTask(
     pi.sendMessage(
       {
         customType: "task-complete",
-        content: `Background task ${id} (${task.agentType}) ${phase}.\n\nResult:\n${content}`,
+        content: `Background task ${id} (${task.agentType}) ${phase}.\n\n${parsed.summary || content}`,
         display: true,
         details: {
           task_id: id,
@@ -55,10 +59,23 @@ export function completeTask(
           result: content,
           summary: parsed.summary,
           findings: parsed.findings,
+          evidence: parsed.evidence,
+          files: parsed.files,
+          caveats: parsed.caveats,
+          next_steps: parsed.next_steps,
           confidence: parsed.confidence,
           duration_ms: durationMs,
           tool_uses: task.toolUses,
           turn_count: task.turns,
+          background: true,
+          structured_result: Boolean(
+            parsed.findings ||
+              parsed.evidence ||
+              parsed.files ||
+              parsed.caveats ||
+              parsed.next_steps,
+          ),
+          full_output: parsed.raw.trim() || content.trim(),
         },
       },
       {

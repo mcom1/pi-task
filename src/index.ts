@@ -46,6 +46,7 @@ import {
   countToolUses,
   discoverAgents,
   formatAgentList,
+  buildTaskEnvelope,
   formatBackgroundReceipt,
   parseResultXml,
   shellQuote,
@@ -77,6 +78,7 @@ import {
   createTaskCompleteRenderer,
   renderCall,
   renderResult,
+  startForegroundProgressPolling,
   taskParametersSchema,
 } from "./tool/index.js";
 import type {
@@ -228,7 +230,7 @@ export default function (pi: ExtensionAPI) {
           let resume = false;
           let resumeSessionRef: string | undefined;
     
-          const artifactsDir = join(piDir, "artifacts");
+          const artifactsDir = join(piDir, "artifacts", "tasks");
     
           if (registeredTaskId) {
             id = registeredTaskId;
@@ -322,20 +324,10 @@ export default function (pi: ExtensionAPI) {
           }
         }
         if (!entry) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Unknown task_id: "${params.task_id}". No active or completed task session with that ID/session name was found.`,
-              },
-            ],
-            details: {
-              phase: "failed" as const,
-              error: `Unknown task_id: ${params.task_id}`,
-            },
-            isError: true,
-          };
-        }
+          params = { ...params, task_id: undefined };
+          id = `${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
+          sessionName = conversationId ?? `task-${id}`;
+        } else {
         if (!existsSync(entry.dir)) {
           return {
             content: [
@@ -411,6 +403,7 @@ export default function (pi: ExtensionAPI) {
             },
             isError: true,
           };
+        }
         }
        } else {
          id = `${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
@@ -633,29 +626,17 @@ export default function (pi: ExtensionAPI) {
           background: false,
         });
 
-        // Poll tool-call progress while waiting for completion
-        let lastToolCalls = -1;
-        const onAbort = () => clearInterval(toolProgressInterval);
-        const toolProgressInterval = setInterval(() => {
-          try {
-            const stats = countToolUses(sessionDir, sessionName);
-            if (stats.toolUses > 0 && stats.toolUses !== lastToolCalls) {
-              lastToolCalls = stats.toolUses;
-              _onUpdate?.({
-                content: [
-                  {
-                    type: "text",
-                    text: `${stats.toolUses} tool call${stats.toolUses !== 1 ? "s" : ""}`,
-                  },
-                ],
-                details: { toolCalls: stats.toolUses },
-              });
-            }
-          } catch {
-            // session file may not exist yet
-          }
-        }, COUNT_POLL_MS);
-        signal?.addEventListener("abort", onAbort, { once: true });
+                    const stopProgress = startForegroundProgressPolling({
+                          piDir,
+                          sessionDir,
+                          sessionName,
+                          agentType: agent.name,
+                          description: descText,
+                          startedAt,
+                          onUpdate: _onUpdate,
+                        });
+                        const onAbort = () => stopProgress();
+                        signal?.addEventListener("abort", onAbort, { once: true });
 
         const completion = await waitForSessionTaskCompletion({
           sessionDir,
@@ -666,7 +647,7 @@ export default function (pi: ExtensionAPI) {
           pollMs: 1000,
           sinceMs: startedAt,
         });
-        clearInterval(toolProgressInterval);
+        stopProgress();
         signal?.removeEventListener("abort", onAbort);
         const content = completion.content;
         const phase =
@@ -716,31 +697,26 @@ export default function (pi: ExtensionAPI) {
             const parsed = parseResultXml(content);
         const durationMs = Date.now() - startedAt;
         const { toolUses, turns } = countToolUses(sessionDir, sessionName);
-
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: parsed.summary || content.trim(),
-                },
-              ],
-              details: {
-                task_id: id,
-                agent_type: agent.name,
-                description: descText,
-                phase,
-                status: "done",
-                summary: parsed.summary || "",
-                findings: parsed.findings || "",
-                evidence: parsed.evidence || "",
-                confidence: parsed.confidence || "",
-                duration_ms: durationMs,
-                tool_uses: toolUses,
-                turn_count: turns,
-                background: false,
-                conversation_id: conversationId,
-              },
-            };
+        const envelope = buildTaskEnvelope(parsed, {
+          agent_type: agent.name,
+          description: descText,
+          tool_uses: toolUses,
+          duration_ms: durationMs,
+          background: false,
+        });
+        return {
+          ...envelope,
+          details: {
+            ...envelope.details,
+            task_id: id,
+            phase,
+            status: "done",
+            confidence: parsed.confidence || "",
+            turn_count: turns,
+            conversation_id: conversationId,
+            full_output: parsed.raw.trim() || content.trim(),
+          },
+        };
           }
 
       // ── BACKGROUND MODE (default): add to tracker, return immediately ─────

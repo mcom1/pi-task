@@ -21,6 +21,7 @@ import {
   TASK_RESULT_XML_INSTRUCTIONS,
   TASK_TOOL_DESCRIPTION,
   countToolUses,
+  formatToolCallsSummaryBlock,
   readRecentToolCalls,
   summarizeArgs,
   findPiDir,
@@ -103,6 +104,53 @@ import {
   const r = parseResultXml("<STATUS>partial</STATUS>\n<SUMMARY>ok</SUMMARY>");
   assert.equal(r.status, "partial", t + " status");
   assert.equal(r.summary, "ok", t + " summary");
+}
+
+{
+  const t = "parseResultXml maps episode alias tags";
+  const raw = [
+    "<episode>",
+    "<status>success</status>",
+    "<summary>Scout done</summary>",
+    "<findings>Release is 0.80.3</findings>",
+    "<sources>https://example.com/release</sources>",
+    "<blockers>npm rate limit</blockers>",
+    "<checks>Run pi --version locally</checks>",
+    "</episode>",
+  ].join("\n");
+  const r = parseResultXml(raw);
+  assert.equal(r.status, "success", t + " status");
+  assert.equal(r.evidence, "https://example.com/release", t + " sources->evidence");
+  assert.equal(r.caveats, "npm rate limit", t + " blockers->caveats");
+  assert.equal(r.next_steps, "Run pi --version locally", t + " checks->next_steps");
+}
+
+{
+  const t = "parseResultXml merges decisions into findings";
+  const raw = [
+    "<status>success</status>",
+    "<summary>Plan ready</summary>",
+    "<findings>Need auth first</findings>",
+    "<decisions>Use session cookies</decisions>",
+  ].join("\n");
+  const r = parseResultXml(raw);
+  assert.ok(r.findings.includes("Need auth first"), t);
+  assert.ok(r.findings.includes("Use session cookies"), t + " decisions");
+}
+
+{
+  const t = "parseResultXml prefers canonical tags over aliases";
+  const raw = [
+    "<evidence>canonical</evidence>",
+    "<sources>alias</sources>",
+    "<caveats>canonical caveats</caveats>",
+    "<blockers>alias blockers</blockers>",
+  ].join("\n");
+  const r = parseResultXml(raw);
+  assert.ok(r.evidence.includes("canonical"), t + " evidence");
+  assert.ok(r.evidence.includes("alias"), t + " sources appended");
+  assert.ok(r.caveats.includes("canonical caveats"), t + " caveats");
+  assert.ok(r.caveats.includes("alias blockers"), t + " blockers appended");
 }
 
 // ─── formatMs ────────────────────────────────────────────────────────────────
@@ -611,6 +659,25 @@ import {
   }
 }
 
+{
+  const t = "formatToolCallsSummaryBlock uses plain indented rows";
+  const text = formatToolCallsSummaryBlock([
+    { id: "1", name: "bash", args: {} },
+    { id: "2", name: "read", args: {} },
+  ]);
+  assert.equal(text, "  bash\n  read", t);
+}
+
+{
+  const t = "formatToolCallsSummaryBlock summarizes hidden rows without branch glyphs";
+  const text = formatToolCallsSummaryBlock([
+    { id: "1", name: "bash", args: {} },
+    { id: "2", name: "read", args: {} },
+    { id: "3", name: "ls", args: {} },
+  ], 2);
+  assert.equal(text, "  … +1 earlier\n  read\n  ls", t);
+}
+
 // ─── findPiDir ───────────────────────────────────────────────────────────────
 
 {
@@ -930,10 +997,6 @@ import {
   assert.ok(
     receipt.includes("/tmp/.pi/tasks/task-123"),
     t + " includes artifact dir",
-  );
-  assert.ok(
-    receipt.includes("completion notification"),
-    t + " explains notification",
   );
 }
 

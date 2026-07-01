@@ -4,6 +4,43 @@ All notable changes to `@heyhuynhgiabuu/pi-task` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.2.2] - 2026-07-01
+
+### Added
+
+- **Structured task results.** `parseResultXml` accepts canonical `<result>` tags
+  and agent `<episode>` aliases (`sources` → evidence, `blockers` → caveats,
+  `checks` → next_steps, `decisions` → findings). `buildTaskEnvelope` maps
+  parsed XML into tool `details` for the TUI.
+- **Shared result rendering.** `renderTaskResultBody` powers foreground
+  `renderResult` and background `task-complete` notifications (Summary /
+  Findings / Evidence / Files / Caveats / Next steps, Ctrl+O expand).
+- **Foreground progress Ctrl+O.** `renderCall` respects `context.expanded`;
+  sticky header shows recent tool lines when expanded (no duplicate `⎿` glyphs
+  in the result body).
+- **`lifecycle/completion.ts`.** Background completion sends parsed `details`
+  (`structured_result`, `full_output`, section fields) instead of dumping raw XML.
+- **Tests** for episode alias parsing, background receipt, and `formatTaskEnvelope`.
+
+### Changed
+
+- **Background start receipt.** Plain three-line receipt with `⎿ Started task…`
+  (no `<task>` XML wrapper); Tmux and sessions lines align under **Started**.
+- **Background TUI spacing.** `details.background` uses tight layout: one leading
+  space on stats, preview, section labels/lines, and ` (ctrl+o …)` hints;
+  branch lines starting with `⎿` are not double-indented.
+- **Plain-text result fallback** uses `PLAIN_SUMMARY_MAX_CHARS` (500) for
+  non-XML subagent replies.
+
+### Fixed
+
+- **task-complete TUI crash.** Renderer returns a `Box` with composed children
+  instead of passing `root.render(0)` into `Text` (`trim is not a function`).
+- **Background expand showed one-line summary only** — completion `details` now
+  include full parsed sections for Ctrl+O.
+
 ## [0.2.1] - 2026-07-01
 
 ### Added

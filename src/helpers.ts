@@ -59,6 +59,8 @@ export interface ParsedResult {
   findings: string;
   evidence: string;
   files: string;
+  caveats: string;
+  next_steps: string;
   confidence: string;
   raw: string;
 }
@@ -92,16 +94,18 @@ export const OUTPUT_FORMAT_GUIDE = TASK_PROMPT_INSTRUCTIONS;
  * this to the child prompt so the child knows to wrap its final result
  * in these tags (the parent then extracts them into the result section).
  */
-export const TASK_RESULT_XML_INSTRUCTIONS = `When the task is complete, wrap the final result in this XML envelope and nothing after the closing tag:
+export const TASK_RESULT_XML_INSTRUCTIONS = `When the task is complete, wrap the final result in this XML envelope (or the <episode> block from your agent prompt with the same inner tags). Nothing after the closing tag:
 
-<status>done | failed | timeout</status>
+<status>success | failure | blocked | partial</status>
 <summary>One-line summary of the outcome.</summary>
-<findings>Key findings the parent should know about. Plain text, multiple lines OK.</findings>
-<evidence>File:line citations, command output snippets, or other supporting evidence.</evidence>
-<files>Comma-separated list of files you created or modified. Leave empty if none.</files>
+<findings>Key findings. Plain text, multiple lines OK.</findings>
+<evidence>Citations, URLs, command snippets. <sources> is accepted as an alias for evidence.</evidence>
+<files>Files created or modified. Leave empty if none.</files>
+<caveats>Risks, gaps, uncertainty. <blockers> is accepted as an alias.</caveats>
+<next_steps>Follow-up actions. <checks> is accepted as an alias.</next_steps>
 <confidence>high | medium | low</confidence>
 
-The parent agent parses this envelope to populate the result section. Do not add commentary after the closing </confidence> tag.`;
+<decisions> (planner) is merged into findings. The parent parses these tags for the task UI.`;
 
 
 export const TASK_TOOL_DESCRIPTION = `Launch a new agent to handle complex, multistep tasks autonomously.
@@ -142,7 +146,13 @@ const SUMMARY_RE = /<summary>([\s\S]*?)<\/summary>/i;
 const FINDINGS_RE = /<findings>([\s\S]*?)<\/findings>/i;
 const EVIDENCE_RE = /<evidence>([\s\S]*?)<\/evidence>/i;
 const FILES_RE = /<files>([\s\S]*?)<\/files>/i;
+const CAVEATS_RE = /<caveats>([\s\S]*?)<\/caveats>/i;
+const NEXT_STEPS_RE = /<next_steps>([\s\S]*?)<\/next_steps>/i;
 const CONFIDENCE_RE = /<confidence>([\s\S]*?)<\/confidence>/i;
+const SOURCES_RE = /<sources>([\s\S]*?)<\/sources>/i;
+const BLOCKERS_RE = /<blockers>([\s\S]*?)<\/blockers>/i;
+const CHECKS_RE = /<checks>([\s\S]*?)<\/checks>/i;
+const DECISIONS_RE = /<decisions>([\s\S]*?)<\/decisions>/i;
 const PLAIN_SUMMARY_MAX_CHARS = 500;
 
 // ─── Result Parsing ──────────────────────────────────────────────────────────
@@ -152,15 +162,31 @@ export function extractTag(raw: string, re: RegExp): string {
   return m ? m[1].trim() : "";
 }
 
+function joinParsedSections(...parts: string[]): string {
+  return parts.map((p) => p.trim()).filter(Boolean).join("\n\n");
+}
+
+function hasStructuredResultTags(raw: string): boolean {
+  const tags = [
+    STATUS_RE,
+    SUMMARY_RE,
+    FINDINGS_RE,
+    EVIDENCE_RE,
+    FILES_RE,
+    CAVEATS_RE,
+    NEXT_STEPS_RE,
+    SOURCES_RE,
+    BLOCKERS_RE,
+    CHECKS_RE,
+    DECISIONS_RE,
+  ];
+  return tags.some((re) => extractTag(raw, re).length > 0);
+}
+
 export function parseResultXml(raw: string): ParsedResult {
   const status = extractTag(raw, STATUS_RE);
 
-  if (
-    !status &&
-    !extractTag(raw, SUMMARY_RE) &&
-    !extractTag(raw, FINDINGS_RE) &&
-    !extractTag(raw, EVIDENCE_RE)
-  ) {
+  if (!hasStructuredResultTags(raw)) {
     const trimmed = raw.trim();
     return {
       status: "unknown",
@@ -171,21 +197,78 @@ export function parseResultXml(raw: string): ParsedResult {
       findings: "",
       evidence: "",
       files: "",
+      caveats: "",
+      next_steps: "",
       confidence: "",
       raw,
     };
   }
 
   const confidence = extractTag(raw, CONFIDENCE_RE);
+  const findings = joinParsedSections(
+    extractTag(raw, FINDINGS_RE),
+    extractTag(raw, DECISIONS_RE),
+  );
+  const evidence = joinParsedSections(
+    extractTag(raw, EVIDENCE_RE),
+    extractTag(raw, SOURCES_RE),
+  );
+  const caveats = joinParsedSections(
+    extractTag(raw, CAVEATS_RE),
+    extractTag(raw, BLOCKERS_RE),
+  );
+  const next_steps = joinParsedSections(
+    extractTag(raw, NEXT_STEPS_RE),
+    extractTag(raw, CHECKS_RE),
+  );
 
   return {
     status: status || "unknown",
     summary: extractTag(raw, SUMMARY_RE) || "",
-    findings: extractTag(raw, FINDINGS_RE) || "",
-    evidence: extractTag(raw, EVIDENCE_RE) || "",
+    findings,
+    evidence,
     files: extractTag(raw, FILES_RE) || "",
+    caveats,
+    next_steps,
     confidence: confidence || "",
     raw,
+  };
+}
+
+export function buildTaskEnvelope(
+  parsed: ParsedResult,
+  meta: {
+    agent_type: string;
+    description: string;
+    tool_uses: number;
+    duration_ms: number;
+    background: boolean;
+  },
+): { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> } {
+  const structured = Boolean(
+    parsed.findings ||
+      parsed.evidence ||
+      parsed.files ||
+      parsed.caveats ||
+      parsed.next_steps,
+  );
+  return {
+    content: [{ type: "text", text: parsed.summary }],
+    details: {
+      agent_type: meta.agent_type,
+      description: meta.description,
+      tool_uses: meta.tool_uses,
+      duration_ms: meta.duration_ms,
+      background: meta.background,
+      status: parsed.status,
+      summary: parsed.summary,
+      findings: parsed.findings,
+      evidence: parsed.evidence,
+      files: parsed.files,
+      caveats: parsed.caveats,
+      next_steps: parsed.next_steps,
+      structured_result: structured,
+    },
   };
 }
 
@@ -248,6 +331,26 @@ export function buildTmuxSplitWindowArgs(
   return args;
 }
 
+export type TaskEnvelopeState = "running" | "completed" | "error";
+
+/** Machine-readable task handoff (OpenCode task.ts style). */
+export function formatTaskEnvelope(input: {
+  taskId: string;
+  state: TaskEnvelopeState;
+  summary?: string;
+  text: string;
+}): string {
+  const tag = input.state === "error" ? "task_error" : "task_result";
+  return [
+    `<task id="${input.taskId}" state="${input.state}">`,
+    ...(input.summary ? [`<summary>${input.summary}</summary>`] : []),
+    `<${tag}>`,
+    input.text,
+    `</${tag}>`,
+    "</task>",
+  ].join("\n");
+}
+
 export interface BackgroundReceiptInput {
   taskId: string;
   agentType: string;
@@ -257,10 +360,9 @@ export interface BackgroundReceiptInput {
 
 export function formatBackgroundReceipt(input: BackgroundReceiptInput): string {
   return [
-    `Started task ${input.taskId} with ${input.agentType}.`,
-    `Tmux session: ${input.tmuxSession}.`,
-    `Artifact directory: ${input.artifactDir}.`,
-    "A completion notification will arrive automatically; do not poll or duplicate this work.",
+    `⎿ Started task ${input.taskId} with ${input.agentType}.`,
+    ` Tmux session: ${input.tmuxSession}.`,
+    ` Subagent sessions: ${input.artifactDir} (flat JSONL under sessions/).`,
   ].join("\n");
 }
 
@@ -645,4 +747,38 @@ export function summarizeArgs(toolName: string, args: unknown): string {
 
   const recent = all.slice(Math.max(0, all.length - limit));
   return { toolUses, turns, recent };
+}
+
+export function renderTaskStatusSummary(input: {
+  agentType: string;
+  description: string;
+  toolUses: number;
+  elapsedMs: number;
+}): string {
+  const elapsed = formatElapsed(input.elapsedMs);
+  const tools =
+    input.toolUses === 1 ? "1 toolcall" : `${input.toolUses} toolcalls`;
+  return `${input.agentType} • ${tools} • ${elapsed}`;
+}
+
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r > 0 ? `${m}m ${r}s` : `${m}m`;
+}
+
+export function formatToolCallsSummaryBlock(
+  recent: ToolCallRecord[],
+  maxLines = 5,
+): string {
+  if (recent.length === 0) return "";
+  const visible = recent.slice(-maxLines);
+  const hidden = recent.length - visible.length;
+  const lines = visible.map((c) => `  ${c.name}`);
+  if (hidden > 0) {
+    lines.unshift(`  … +${hidden} earlier`);
+  }
+  return lines.join("\n");
 }

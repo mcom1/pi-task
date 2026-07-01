@@ -15,6 +15,10 @@ export interface BackgroundTask {
   recentCalls: ToolCallRecord[];
   /** Consecutive completion-poll failures; reset to 0 on a successful poll. */
   pollErrors?: number;
+  status?: "running" | "done" | "cancelled" | "aborted" | "failed" | "timeout";
+  phase?: string;
+  result?: string;
+  completedAt?: number;
 }
 
 /** Serializable subset for active task registry persistence. */
