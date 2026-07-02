@@ -122,6 +122,18 @@ Bundled agents in `agents/`: `explore`, `scout`, `general`, `reviewer`. `readonl
 
 When the target repo is not the parent session cwd (e.g. verifying the `pi-task` extension while cwd is an app), put an **absolute path** in the task `prompt` so explore/general search the right tree.
 
+## Environment
+
+| Variable | Effect |
+|----------|--------|
+| `PI_TASK_CHILD_NO_EXTENSIONS=1` | Child `pi` runs with `--no-extensions` (fewer startup failures in tmux subagents). |
+| `PI_TASK_POLL_MS` | Background poll interval (default 2000). |
+| `PI_TASK_BACKEND` | `tmux` or `sdk` to force backend. |
+
+### Background task failed with "Subagent pane exited"
+
+That means the tmux pane died before a session JSONL result was available — not necessarily a tmux bug. The parent message should include session dir status and a **pane capture** when possible. Check the `task-*` split pane for extension load errors; try `PI_TASK_CHILD_NO_EXTENSIONS=1` or `background: false` for one-shot review.
+
 ## Development
 
 ```bash

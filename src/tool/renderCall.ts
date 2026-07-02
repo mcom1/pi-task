@@ -1,6 +1,7 @@
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatElapsed } from "../helpers.js";
+import { renderTaskTitleText } from "./taskTitle.js";
 
 /** Sticky header only: agent • tools • duration. Tool lines stream via onUpdate content. */
 export function renderCall(
@@ -23,15 +24,12 @@ export function renderCall(
   const toolUses = progress?.toolUses ?? 0;
   const elapsedMs = progress?.durationMs ?? 0;
 
-  const agent = theme.fg("toolTitle", agentType);
   const sep = theme.fg("muted", " • ");
 
   const summary =
     toolUses === 0 && elapsedMs < 1_000 && description
-      ? agent +
-        sep +
-        theme.fg("muted", truncateStickyDescription(description))
-      : agent +
+      ? renderTaskTitleText(agentType, description, theme)
+      : theme.fg("toolTitle", agentType) +
         sep +
         theme.fg("text", formatToolCount(toolUses)) +
         sep +
@@ -40,13 +38,6 @@ export function renderCall(
   container.addChild(new Text(summary, 0, 0));
 
   return container;
-}
-
-const STICKY_DESCRIPTION_MAX = 72;
-
-function truncateStickyDescription(text: string): string {
-  if (text.length <= STICKY_DESCRIPTION_MAX) return text;
-  return `${text.slice(0, STICKY_DESCRIPTION_MAX - 1)}…`;
 }
 
 function formatToolCount(n: number): string {

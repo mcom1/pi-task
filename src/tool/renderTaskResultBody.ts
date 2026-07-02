@@ -24,7 +24,7 @@ export type TaskResultDetails = {
 export function renderTaskResultBody(
   details: TaskResultDetails,
   contentSummaryText: string,
-  options: { expanded?: boolean },
+  options: { expanded?: boolean; indentHint?: boolean },
   theme: Theme,
 ): InstanceType<typeof Container> {
   const tight = Boolean(details.background);
@@ -35,8 +35,9 @@ export function renderTaskResultBody(
 
   const summaryLine = (details.summary ?? contentSummaryText).trim();
   const preview = summaryLine.slice(0, 120);
-  const expandHint = parenthesizedExpandHint("to expand", theme);
-  const collapseHint = parenthesizedExpandHint("to collapse", theme);
+  const hintPrefix = options.indentHint ? " " : "";
+  const expandHint = hintPrefix + parenthesizedExpandHint("to expand", theme);
+  const collapseHint = hintPrefix + parenthesizedExpandHint("to collapse", theme);
   const structured = hasStructuredTaskDetails(details);
   const plainBody = (details.full_output ?? contentSummaryText).trim();
   const multilinePlain = !structured && plainBody.includes("\n");
@@ -49,6 +50,7 @@ export function renderTaskResultBody(
         ? "1 toolcall"
         : `${details.tool_uses} toolcalls`;
     const statsText =
+      " " +
       theme.fg("muted", toolsLabel) +
       (durationMs > 0
         ? theme.fg("muted", " • ") + theme.fg("success", formatElapsed(durationMs))
@@ -56,7 +58,7 @@ export function renderTaskResultBody(
     container.addChild(new Text(statsText, 0, 0));
   } else if (durationMs > 0) {
     container.addChild(
-      new Text(theme.fg("success", formatElapsed(durationMs)), 0, 0),
+      new Text(" " + theme.fg("success", formatElapsed(durationMs)), 0, 0),
     );
   }
 

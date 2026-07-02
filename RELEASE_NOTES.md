@@ -1,3 +1,24 @@
+# pi-task v0.2.4
+
+## Highlights
+
+- **Reliable background polling:** prevents overlapping poll ticks from completing the same background task twice, and reads subagent JSONL from `sessions/<taskId>` consistently.
+- **Better failure diagnostics:** when a tmux subagent exits without a result, the parent report now includes the expected session directory, JSONL presence, and pane tail when available.
+- **Safer subagent startup:** `PI_TASK_CHILD_NO_EXTENSIONS=1` runs child Pi sessions with `--no-extensions` for debugging extension-load crashes.
+- **Cleaner task UI:** shared task title renderer keeps running and completed task titles consistent; completion notifications use the theme `toolSuccessBg` background.
+- **Tests:** polling concurrency regression, failure diagnostics coverage, and render hint expectations updated.
+
+## Upgrade
+
+```bash
+pi install @heyhuynhgiabuu/pi-task@0.2.4
+# or link local: pi extensions link ~/dev/projects/pi-task
+```
+
+Requires peer `@earendil-works/pi-coding-agent` ^0.80.0.
+
+---
+
 # Release notes
 
 Human-readable release log for `@heyhuynhgiabuu/pi-task`.

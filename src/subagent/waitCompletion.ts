@@ -2,7 +2,11 @@ import {
   getLastAssistantTextFromSessionDir,
   hasAgentFinished,
 } from "../session-text.js";
-import { paneExists } from "./tmux.js";
+import {
+  enrichSubagentFailureMessage,
+  sessionJsonlExists,
+} from "./failure-diagnostics.js";
+import { paneDead, paneExists } from "./tmux.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -23,6 +27,8 @@ export interface WaitForTaskCompletionOptions {
   sessionDir: string;
   sessionName: string;
   paneId?: string;
+  artifactsDir?: string;
+  taskId?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
   pollMs?: number;
@@ -49,58 +55,63 @@ function readSessionText(
   return text.length > 0 ? text : null;
 }
 
-/**
- * Time to wait for the JSONL to flush after the pane exits before we
- * accept "no terminal message" as a real failure. 500ms (the previous
- * default) was too tight — pi's session autosave buffers writes and the
- * final stopReason often lands 1-3s after the assistant stops streaming.
- * If it's still not there after this window, retry once before falling
- * back to "failed".
- */
-const POST_PANE_EXIT_FLUSH_MS = 2500
-const POST_PANE_EXIT_RETRY_MS = 2500
+const POST_PANE_EXIT_FLUSH_MS = 2500;
+const POST_PANE_EXIT_RETRY_MS = 2500;
+
+function reportPaneExitFailure(
+  options: Pick<
+    WaitForTaskCompletionOptions,
+    "paneId" | "artifactsDir" | "taskId" | "sessionDir"
+  >,
+): string {
+  const base = "Subagent pane exited without producing a result.";
+  if (!options.paneId) return base;
+  return enrichSubagentFailureMessage({
+    kind: "pane_exit",
+    baseMessage: base,
+    paneId: options.paneId,
+    artifactsDir: options.artifactsDir,
+    taskId: options.taskId,
+    elapsedMs: 0,
+  });
+}
 
 export async function checkTaskCompletion(
   options: Omit<WaitForTaskCompletionOptions, "signal" | "timeoutMs" | "pollMs">,
 ): Promise<TaskCompletionSnapshot> {
-  const paneAlive = options.paneId ? paneExists(options.paneId) : false
+  const paneAlive = options.paneId ? paneExists(options.paneId) : false;
 
-  // If the pane has exited, give pi time to flush the final JSONL entry.
-  // Retry once because the first flush window is sometimes not enough —
-  // pi's session autosave buffers writes and the final stopReason can
-  // land a couple of seconds after the assistant stops streaming.
   if (options.paneId && !paneAlive) {
-    await sleep(POST_PANE_EXIT_FLUSH_MS)
+    await sleep(POST_PANE_EXIT_FLUSH_MS);
     const firstPass = readSessionText(
       options.sessionDir,
       options.sessionName,
       options.sinceMs,
-    )
+    );
     if (firstPass) {
-      return { status: "completed", content: firstPass, source: "session-jsonl" }
+      return { status: "completed", content: firstPass, source: "session-jsonl" };
     }
-    await sleep(POST_PANE_EXIT_RETRY_MS)
+    await sleep(POST_PANE_EXIT_RETRY_MS);
   }
 
-  // Session JSONL is the single authoritative completion source.
   const sessionResult = readSessionText(
     options.sessionDir,
     options.sessionName,
     options.sinceMs,
-  )
+  );
   if (sessionResult) {
-    return { status: "completed", content: sessionResult, source: "session-jsonl" }
+    return { status: "completed", content: sessionResult, source: "session-jsonl" };
   }
 
-  // No terminal assistant message yet. If the pane is alive, keep waiting.
   if (options.paneId && paneExists(options.paneId)) {
-    return { status: "running", content: "", source: "pane" }
+    return { status: "running", content: "", source: "pane" };
   }
 
   return {
     status: "failed",
-    content: "Subagent pane exited without producing a result.",
-  }
+    content: reportPaneExitFailure(options),
+    source: "pane",
+  };
 }
 
 export async function waitForTaskCompletion(
@@ -112,16 +123,11 @@ export async function waitForTaskCompletion(
 
   while (Date.now() - started < timeoutMs) {
     if (options.signal?.aborted) {
-      // On signal abort (e.g. parent session reload while a foreground
-      // task was in flight), return whatever the subagent already wrote
-      // to the JSONL — even if it was mid-streaming (stopReason: toolUse)
-      // and the agent never formally "finished". Better to send partial
-      // output than to lose everything to the cancel.
       const partial = getLastAssistantTextFromSessionDir(
         options.sessionDir,
         options.sessionName,
         options.sinceMs,
-      )
+      );
       return {
         status: "cancelled",
         content: partial?.trim() || "Task was cancelled.",
@@ -134,9 +140,35 @@ export async function waitForTaskCompletion(
     await sleep(pollMs);
   }
 
+  const elapsedMs = Date.now() - started;
+  const base = `Task timed out after ${Math.round(timeoutMs / 1000)}s without producing a result.`;
+  let content = base;
+  if (options.paneId && paneDead(options.paneId)) {
+    content = enrichSubagentFailureMessage({
+      kind: "timeout",
+      baseMessage: base,
+      paneId: options.paneId,
+      artifactsDir: options.artifactsDir,
+      taskId: options.taskId,
+      elapsedMs,
+    });
+  } else if (
+    options.artifactsDir &&
+    options.taskId &&
+    !sessionJsonlExists(options.artifactsDir, options.taskId)
+  ) {
+    content = enrichSubagentFailureMessage({
+      kind: "timeout",
+      baseMessage: base,
+      artifactsDir: options.artifactsDir,
+      taskId: options.taskId,
+      elapsedMs,
+    });
+  }
+
   return {
     status: "timeout",
-    content: `Task timed out after ${Math.round(timeoutMs / 1000)}s without producing a result.`,
+    content,
     source: "timeout",
   };
 }

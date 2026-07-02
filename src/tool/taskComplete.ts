@@ -4,6 +4,7 @@ import {
   renderTaskResultBody,
   type TaskResultDetails,
 } from "./renderTaskResultBody.js";
+import { renderTaskTitleText } from "./taskTitle.js";
 
 /**
  * Renderer for background task completion notifications.
@@ -26,23 +27,18 @@ export function createTaskCompleteRenderer() {
     }
 
     const root = new Container();
-    const agentType = d.agent_type || "";
+    const agentType = d.agent_type || "task";
     const desc = d.description || "";
-    const title =
-      theme.fg("toolTitle", agentType) +
-      (desc
-        ? theme.fg("muted", " • ") + theme.fg("muted", desc)
-        : "");
-    root.addChild(new Text(title, 0, 0));
+    const title = renderTaskTitleText(agentType, desc, theme);
+    root.addChild(new Text(" " + title, 0, 0));
 
     const summaryText = (d.summary || "").trim();
-    const body = renderTaskResultBody(d, summaryText, { expanded }, theme);
+    const body = renderTaskResultBody(d, summaryText, { expanded, indentHint: true }, theme);
     root.addChild(body);
 
     if (root.children.length === 0) return undefined;
 
-    const subtleBg = (text: string) => `\x1b[48;2;30;28;44m${text}\x1b[0m`;
-    const box = new Box(0, 1, subtleBg);
+    const box = new Box(0, 1, (text) => theme.bg("toolSuccessBg", text));
     for (const child of root.children) {
       box.addChild(child);
     }

@@ -225,4 +225,44 @@ function makeDeps(
   );
 }
 
+
+{
+  const t = "overlapping polling ticks do not complete the same task twice";
+  const backgroundTasks = new Map<any, any>();
+  backgroundTasks.set("t1", {
+    dir: "/tmp/pi-task-artifacts",
+    sessionName: "s1",
+    paneId: "%1",
+    originalPane: null,
+    startedAt: Date.now(),
+  });
+
+  let completeCount = 0;
+  let release!: () => void;
+  const firstCheck = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  const stop = startBackgroundPolling(
+    makeDeps({
+      backgroundTasks,
+      checkTaskCompletion: async () => {
+        await firstCheck;
+        return { status: "completed", content: "done" };
+      },
+      completeTask: () => {
+        completeCount += 1;
+      },
+    }),
+    5,
+  );
+
+  await sleep(30);
+  release();
+  await sleep(40);
+  stop();
+
+  assert.equal(completeCount, 1, `${t}: expected exactly one completion`);
+}
+
 console.log("ALL POLLING TESTS PASSED");

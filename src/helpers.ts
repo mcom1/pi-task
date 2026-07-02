@@ -366,8 +366,8 @@ export interface BackgroundReceiptInput {
 export function formatBackgroundReceipt(input: BackgroundReceiptInput): string {
   return [
     `⎿ Started task ${input.taskId} with ${input.agentType}.`,
-    ` Tmux session: ${input.tmuxSession}.`,
-    ` Subagent sessions: ${input.artifactDir} (flat JSONL under sessions/).`,
+    ` Pi session name: ${input.tmuxSession}.`,
+    ` Subagent sessions: ${input.artifactDir}.`,
   ].join("\n");
 }
 

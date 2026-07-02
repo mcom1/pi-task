@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-03
+
+### Added
+
+- Rich tmux subagent failure diagnostics: reports expected session dir, JSONL presence, startup hints, and pane tail when available.
+- `PI_TASK_CHILD_NO_EXTENSIONS=1` to run child Pi sessions with `--no-extensions` while debugging extension-load crashes.
+- Shared task title renderer for consistent foreground/background task title formatting.
+- Polling regression coverage for overlapping background poll ticks.
+
+### Changed
+
+- Background task receipt text is shorter: removes extra tmux/session parentheticals.
+- Background task completion uses theme `toolSuccessBg` instead of hardcoded ANSI RGB.
+- Running and completed task UI spacing is aligned for task titles, stats, and expand/collapse hints.
+- `npm test` now includes `test/polling.test.ts`.
+
+### Fixed
+
+- Background polling now reads subagent sessions from `artifacts/tasks/sessions/<taskId>` instead of the artifacts root.
+- Background polling now uses an in-flight guard so slow poll ticks cannot duplicate completion notifications.
+- Timeout/pane-exit diagnostics no longer collapse into an opaque “Subagent pane exited” message when session artifacts exist.
+
 ## [0.2.3] - 2026-07-02
 
 ### Added

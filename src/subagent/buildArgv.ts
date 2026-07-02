@@ -25,6 +25,9 @@ export function buildPiArgv(opts: BuildPiArgvOptions): string[] {
   });
 
   const args: string[] = [];
+  if (process.env.PI_TASK_CHILD_NO_EXTENSIONS === "1") {
+    args.push("--no-extensions");
+  }
   if (agent.model) args.push("--model", agent.model);
   if (agent.thinking) args.push("--thinking", agent.thinking);
   args.push("--tools", allowedTools.join(","));

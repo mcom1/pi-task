@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
     "utf8",
   );
   assert.ok(src.includes("toolUses === 0 && elapsedMs < 1_000"), t);
-  assert.ok(src.includes("truncateStickyDescription"), t);
+  assert.ok(src.includes("renderTaskTitleText"), t);
 }
 
 {
