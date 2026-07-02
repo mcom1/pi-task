@@ -1,82 +1,79 @@
-import { COUNT_POLL_MS, FOREGROUND_PROGRESS_MAX_TOOL_LINES } from "../constants.js";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
-  formatToolCallsSummaryBlock,
-  readRecentToolCalls,
-  renderTaskStatusSummary,
+  countToolUses,
+  formatForegroundProgressText,
+  readProgress,
 } from "../helpers.js";
+import { FOREGROUND_PROGRESS_POLL_MS } from "../constants.js";
 
-export type ForegroundProgressDetails = {
-  _taskRunningProgress?: {
-    summary: string;
-    lines: string;
-    toolUses: number;
-    elapsedMs: number;
-  };
+export type ForegroundProgressPollOptions = {
+  sessionDir: string;
+  sessionName: string;
+  agentType: string;
+  description: string;
+  startedAt: number;
+  onUpdate: (update: {
+    content: Array<{ type: "text"; text: string }>;
+    details: Record<string, unknown>;
+  }) => void;
 };
 
-export function pollForegroundProgress(input: {
-  piDir: string;
-  sessionDir: string;
-  sessionName: string;
-  agentType: string;
-  description: string;
-  startedAt: number;
-}): ForegroundProgressDetails {
-  const { recent: recentToolCalls, toolUses } = readRecentToolCalls(
-    input.sessionDir,
-    FOREGROUND_PROGRESS_MAX_TOOL_LINES,
-    input.sessionName,
-  );
-  const elapsedMs = Date.now() - input.startedAt;
-  const summary = renderTaskStatusSummary({
-    agentType: input.agentType,
-    description: input.description,
-    toolUses,
-    elapsedMs,
-  });
-  return {
-    _taskRunningProgress: {
-      summary,
-      lines: formatToolCallsSummaryBlock(recentToolCalls, FOREGROUND_PROGRESS_MAX_TOOL_LINES),
-      toolUses,
-      elapsedMs,
+export function flushOnUpdate(
+  onUpdate: ForegroundProgressPollOptions["onUpdate"],
+  progress: {
+    agentType: string;
+    toolUses: number;
+    durationMs: number;
+    outputLines: string[];
+  },
+  theme: Theme,
+): void {
+  const text = formatForegroundProgressText(progress, theme);
+  onUpdate({
+    content: text ? [{ type: "text", text }] : [],
+    details: {
+      _taskRunningProgress: progress,
     },
-  };
+  });
 }
 
-export function formatForegroundProgressText(
-  progress: NonNullable<ForegroundProgressDetails["_taskRunningProgress"]>,
-): string {
-  return progress.lines ? `${progress.summary}\n${progress.lines}` : progress.summary;
-}
+export function startForegroundProgressPolling(
+  options: ForegroundProgressPollOptions,
+): () => void {
+  const {
+    sessionDir,
+    sessionName,
+    agentType,
+    description,
+    startedAt,
+    onUpdate,
+  } = options;
 
-export function startForegroundProgressPolling(input: {
-  piDir: string;
-  sessionDir: string;
-  sessionName: string;
-  agentType: string;
-  description: string;
-  startedAt: number;
-  onUpdate: ((update: { content: { type: "text"; text: string }[]; details: ForegroundProgressDetails }) => void) | undefined;
-}): () => void {
-  if (!input.onUpdate) return () => {};
+  let lastToolUses = -1;
+  let lastOutputKey = "";
+
   const tick = () => {
-    const details = pollForegroundProgress({
-      piDir: input.piDir,
-      sessionDir: input.sessionDir,
-      sessionName: input.sessionName,
-      agentType: input.agentType,
-      description: input.description,
-      startedAt: input.startedAt,
-    });
-    const p = details._taskRunningProgress;
-    if (!p) return;
-    input.onUpdate!({
-      content: [{ type: "text", text: "" }],
-      details,
-    });
+    const { toolUses } = countToolUses(sessionDir, sessionName);
+    const outputLines = readProgress(sessionDir, sessionName);
+    const outputKey = outputLines.join("\n");
+    const durationMs = Date.now() - startedAt;
+    if (toolUses === lastToolUses && outputKey === lastOutputKey) {
+      return;
+    }
+    lastToolUses = toolUses;
+    lastOutputKey = outputKey;
+    const progress = {
+      agentType,
+      description,
+      toolUses,
+      durationMs,
+      outputLines,
+    };
+    const theme = { fg: (_role: string, text: string) => text } as Theme;
+    flushOnUpdate(onUpdate, progress, theme);
   };
+
   tick();
-  const id = setInterval(tick, COUNT_POLL_MS);
-  return () => clearInterval(id);
+  const timer = setInterval(tick, FOREGROUND_PROGRESS_POLL_MS);
+  return () => clearInterval(timer);
 }

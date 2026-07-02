@@ -17,7 +17,7 @@ For the full high-quality 89s @ 56 fps version, [download the MP4](https://githu
 - Tmux backend for observable subagent panes.
 - SDK fallback when tmux is unavailable.
 - Agent frontmatter support: `model`, `thinking`, `tools`, `disallowed_tools`.
-- Built-in starter agents: `scout`, `explore`, `planner`, `reviewer`, `vision`, `worker`.
+- Built-in starter agents: `scout`, `explore`, `general`, `reviewer`.
 - Project/user agent overrides via `.pi/agents/*.md` or `~/.pi/agents/*.md`.
 
 ## Install
@@ -103,6 +103,9 @@ When two agents have the same name, later sources override earlier ones:
 description: Local read-only code explorer
 model: opencode-go/deepseek-v4-flash
 thinking: off
+readonly: true
+# hidden: true      # omit from task tool catalog; block invoke
+# proactive: true   # listed in proactive delegation block on task tool
 tools: read, grep, find, ls
 disallowed_tools: edit, write
 prompt_mode: append
@@ -111,9 +114,13 @@ prompt_mode: append
 # Agent instructions
 ```
 
-`tools:` is an explicit allowlist. If omitted, pi-task starts from the tools actually registered in the parent Pi session, then removes `disallowed_tools`. Recursive `task` delegation is always blocked.
+Pi has one session parent agent; all `*.md` agents under `agents/` are **task subagents** only. Use `hidden` for internal/harness-only agents.
 
-Bundled agents rely on built-in `read`, `grep`, `find`, `ls`, and safe read-only `bash` for navigation. When shell search is needed, they prefer `rg -n` / `rg -nF` over recursive grep.
+`tools:` is an explicit allowlist. If omitted, pi-task starts from the tools actually registered in the parent Pi session, then removes `disallowed_tools`. `readonly: true` always adds write/edit/apply_patch/harness to the deny list, even when `tools:` is explicit. It does **not** deny `bash`; use explicit `tools:` or `disallowed_tools: bash` when an agent must not run shell. Recursive `task` delegation is always blocked.
+
+Bundled agents in `agents/`: `explore`, `scout`, `general`, `reviewer`. `readonly` blocks mutating tools (write/edit/apply_patch/harness), not `bash`.
+
+When the target repo is not the parent session cwd (e.g. verifying the `pi-task` extension while cwd is an app), put an **absolute path** in the task `prompt` so explore/general search the right tree.
 
 ## Development
 
@@ -121,6 +128,7 @@ Bundled agents rely on built-in `read`, `grep`, `find`, `ls`, and safe read-only
 npm install
 npm run typecheck
 npm test
+npm run smoke   # requires `pi` on PATH; checks peer version
 npm run build
 npm pack --dry-run
 ```

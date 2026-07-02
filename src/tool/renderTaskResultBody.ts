@@ -1,7 +1,7 @@
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { keyHint, keyText, rawKeyHint } from "@earendil-works/pi-coding-agent";
-import { formatMs } from "../helpers.js";
+import { formatElapsed } from "../helpers.js";
 
 export type TaskResultDetails = {
   agent_type?: string;
@@ -28,32 +28,36 @@ export function renderTaskResultBody(
   theme: Theme,
 ): InstanceType<typeof Container> {
   const tight = Boolean(details.background);
-  const stats: string[] = [];
-  if (typeof details.tool_uses === "number" && details.tool_uses > 0) {
-    stats.push(
-      theme.fg(
-        "muted",
-        `${details.tool_uses} toolcall${details.tool_uses === 1 ? "" : "s"}`,
-      ),
-    );
-  }
+  let durationMs = 0;
   if (typeof details.duration_ms === "number" && details.duration_ms > 0) {
-    stats.push(theme.fg("muted", formatMs(details.duration_ms)));
+    durationMs = details.duration_ms;
   }
 
   const summaryLine = (details.summary ?? contentSummaryText).trim();
   const preview = summaryLine.slice(0, 120);
-  const expandHint = expandCollapseHint("to expand");
-  const collapseHint = expandCollapseHint("to collapse");
+  const expandHint = parenthesizedExpandHint("to expand", theme);
+  const collapseHint = parenthesizedExpandHint("to collapse", theme);
   const structured = hasStructuredTaskDetails(details);
   const plainBody = (details.full_output ?? contentSummaryText).trim();
   const multilinePlain = !structured && plainBody.includes("\n");
 
   const container = new Container();
 
-  if (stats.length) {
-    const statsText = stats.join(theme.fg("dim", " • "));
-    container.addChild(new Text(` ${statsText}`, 0, 0));
+  if (typeof details.tool_uses === "number" && details.tool_uses > 0) {
+    const toolsLabel =
+      details.tool_uses === 1
+        ? "1 toolcall"
+        : `${details.tool_uses} toolcalls`;
+    const statsText =
+      theme.fg("muted", toolsLabel) +
+      (durationMs > 0
+        ? theme.fg("muted", " • ") + theme.fg("success", formatElapsed(durationMs))
+        : "");
+    container.addChild(new Text(statsText, 0, 0));
+  } else if (durationMs > 0) {
+    container.addChild(
+      new Text(theme.fg("success", formatElapsed(durationMs)), 0, 0),
+    );
   }
 
   if (options.expanded) {
@@ -69,15 +73,28 @@ export function renderTaskResultBody(
         container.addChild(new Text(prefixResultLine(line, tight), 0, 0));
       }
     }
-    container.addChild(
-      new Text(theme.fg("dim", ` (${collapseHint})`), 0, 0),
-    );
+    container.addChild(new Text(collapseHint, 0, 0));
   } else {
     if (multilinePlain) {
-      for (const line of plainBody.split("\n")) {
-        container.addChild(
-          new Text(theme.fg("dim", prefixResultLine(line, tight)), 0, 0),
-        );
+      if (tight) {
+        const line = pickLatestCollapsedPreviewLine(plainBody);
+        if (line) {
+          const branchPreview = line.startsWith("⎿")
+            ? line
+            : `⎿ ${line}`;
+          container.addChild(
+            new Text(
+              theme.fg("dim", prefixResultLine(branchPreview, true)),
+              0, 0,
+            ),
+          );
+        }
+      } else {
+        for (const line of plainBody.split("\n")) {
+          container.addChild(
+            new Text(theme.fg("dim", prefixResultLine(line, tight)), 0, 0),
+          );
+        }
       }
     } else if (preview) {
       const branchPreview = preview.startsWith("⎿")
@@ -95,9 +112,7 @@ export function renderTaskResultBody(
       multilinePlain ||
       (details.full_output ?? "").length > summaryLine.length
     ) {
-      container.addChild(
-        new Text(theme.fg("dim", ` (${expandHint})`), 0, 0),
-      );
+      container.addChild(new Text(expandHint, 0, 0));
     }
   }
 
@@ -136,6 +151,27 @@ function expandCollapseHint(action: "to expand" | "to collapse") {
   return keyText("app.tools.expand").trim()
     ? keyHint("app.tools.expand", action)
     : rawKeyHint("ctrl+o", action);
+}
+
+/** Parens stay dim; inner hint keeps key/muted styles (trailing `)` was default fg after ANSI reset). */
+function parenthesizedExpandHint(
+  action: "to expand" | "to collapse",
+  theme: Theme,
+): string {
+  const inner = expandCollapseHint(action);
+  return theme.fg("dim", "(") + inner + theme.fg("dim", ")");
+}
+
+function pickLatestCollapsedPreviewLine(plainBody: string): string | undefined {
+  const lines = plainBody
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return undefined;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i]!.trimStart().startsWith("⎿")) return lines[i]!;
+  }
+  return lines[lines.length - 1]!;
 }
 
 function prefixResultLine(line: string, _tight: boolean): string {

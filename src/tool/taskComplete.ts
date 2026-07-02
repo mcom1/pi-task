@@ -28,9 +28,12 @@ export function createTaskCompleteRenderer() {
     const root = new Container();
     const agentType = d.agent_type || "";
     const desc = d.description || "";
-    let title = theme.fg("accent", agentType);
-    if (desc) title += theme.fg("dim", ` - ${desc}`);
-    root.addChild(new Text(` ${title}`, 0, 0));
+    const title =
+      theme.fg("toolTitle", agentType) +
+      (desc
+        ? theme.fg("muted", " • ") + theme.fg("muted", desc)
+        : "");
+    root.addChild(new Text(title, 0, 0));
 
     const summaryText = (d.summary || "").trim();
     const body = renderTaskResultBody(d, summaryText, { expanded }, theme);

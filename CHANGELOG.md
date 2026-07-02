@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-02
+
+### Added
+
+- Bundled **general** agent; roster **explore**, **scout**, **general**, **reviewer** (removed bundled worker / planner / vision).
+- Agent YAML: **`hidden`** (exclude from catalog + block `task` invoke), **`proactive`** (PROACTIVE block in tool description), **`readonly`** (deny write/edit/apply_patch/harness; bash allowed).
+- `resolveTaskAgentPreflight`, dynamic `buildTaskToolDescription(agents)` catalog from discovered agents.
+- Task prompt **Workspace scope** section (`buildTaskPrompt`); parent guideline for absolute repo paths when cwd ≠ target.
+- `test/prompt.test.ts`; smoke check that `pi --version` meets peer `@earendil-works/pi-coding-agent` (skip if `pi` not on PATH).
+- Frontmatter parsing tests (`hidden` / `proactive` / `readonly`).
+
+### Changed
+
+- `TASK_PROMPT_INSTRUCTIONS` aligned with XML result envelope; `TASK_RESULT_XML_INSTRUCTIONS` use `<summary>` (not stale `<episode>`).
+- Bundled `explore` / `scout` agent docs: workspace rules; deduplicated bullets.
+- Background task expand hint: closing `)` uses dim theme (was default white after inner ANSI reset).
+- Foreground task widget: status line stays one row; tool lines capped (5) in onUpdate + bottom widget (8) to avoid overlapping agent • tools • duration when >10 toolcalls.
+- Foreground sticky `renderCall`: show `agent • description` until elapsed ≥1s or tool count &gt;0 (no static `0 toolcalls • 0s`).
+- `readProgress(sessionDir)`: same path as `countToolUses` for foreground polling (fixes reviewer path mismatch).
+- Foreground sticky `renderCall`: agent `toolTitle`; tool count `text`; duration `success`.
+- Task result body (foreground + background): stats use **`muted`** toolcalls + **`success`** duration (`formatElapsed`); sticky `renderCall` while running keeps **`text`** tool count (widget-style).
+- Task-complete notification title: agent `toolTitle`, description `muted` (aligned with foreground sticky).
+- Background: collapsed result shows **one** latest `⎿` tool line (not full multiline stream); bottom widget **1** tool line per background task (foreground widget still 8).
+
 ## [0.2.2] - 2026-07-01
 
 ### Added

@@ -26,7 +26,8 @@ const SPINNER_FRAMES = [
   "\u2807",
   "\u280F",
 ];
-const MAX_TOOL_LINES = 12;
+/** Keep status row clear when many subagent toolcalls (foreground overlap fix). */
+const MAX_TOOL_LINES = 8;
 const MAX_BACKGROUND_LINES = 8;
 const MAX_WIDTH = 120;
 const TREE_MIDDLE = "\u251C\u2500"; // ├─

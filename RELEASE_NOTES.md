@@ -2,6 +2,25 @@
 
 Human-readable release log for `@heyhuynhgiabuu/pi-task`.
 
+## 0.2.3 — 2026-07-02
+
+### Highlights
+
+- **Task roster:** bundled agents `explore`, `scout`, `general`, `reviewer` (removed worker / planner / vision). YAML `hidden`, `proactive`, `readonly`; dynamic task catalog + preflight.
+- **Workspace scope** in delegated prompts; parent hint to pass absolute repo paths when cwd ≠ target.
+- **Foreground:** sticky header (`toolTitle` agent, `text` tool count while running, `success` duration); description until live stats; `readProgress(sessionDir)`; overlap caps.
+- **Background + results:** shared result body — `muted` toolcalls • `success` duration on **completed** results; one collapsed `⎿` line; task-complete title aligned with sticky; dim `)` on expand hint.
+- **Tests:** prompt, frontmatter, renderHint; smoke peer `pi` version check.
+
+### Upgrade
+
+```bash
+pi install @heyhuynhgiabuu/pi-task@0.2.3
+# or link local: pi extensions link ~/dev/projects/pi-task
+```
+
+Requires peer `@earendil-works/pi-coding-agent` ^0.80.0.
+
 ## 0.1.6
 
 ### What changed

@@ -27,9 +27,9 @@ async function eventually(assertion: () => void): Promise<void> {
 
     startSdkBackgroundTask({
       id: "m123abc-def0",
-      agentType: "worker",
+      agentType: "general",
       description: "Do work",
-      sessionName: "task-m123abc-def0-worker",
+      sessionName: "task-m123abc-def0-general",
       startedAt: 100,
       piDir,
       artifactsDir,

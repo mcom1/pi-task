@@ -8,6 +8,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { execFileSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -18,6 +19,51 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+function assertPiMeetsPeerDependency(): void {
+  const pkgPath = join(
+    fileURLToPath(new URL("..", import.meta.url)),
+    "package.json",
+  );
+  const peerRange = JSON.parse(readFileSync(pkgPath, "utf8")).peerDependencies[
+    "@earendil-works/pi-coding-agent"
+  ] as string;
+  let piVersion = "";
+  try {
+    piVersion = execFileSync("pi", ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  } catch {
+    console.log(
+      "  SKIP: pi CLI not on PATH (install @earendil-works/pi-coding-agent to match peer " +
+        peerRange +
+        ")",
+    );
+    return;
+  }
+  const m = piVersion.match(/(\d+)\.(\d+)\.(\d+)/);
+  assert.ok(m, "pi --version parseable: " + piVersion);
+  const cur = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const minM = peerRange.match(/\^(\d+)\.(\d+)\.(\d+)/);
+  if (!minM) {
+    console.log("  SKIP: peer range not semver caret: " + peerRange);
+    return;
+  }
+  const min = [Number(minM[1]), Number(minM[2]), Number(minM[3])];
+  const below =
+    cur[0] < min[0] ||
+    (cur[0] === min[0] && cur[1] < min[1]) ||
+    (cur[0] === min[0] && cur[1] === min[1] && cur[2] < min[2]);
+  assert.ok(
+    !below,
+    `pi ${piVersion} is below peer ${peerRange}; upgrade pi-coding-agent`,
+  );
+  console.log("  PASS: pi version meets peer", peerRange, "(", piVersion, ")");
+}
+
+assertPiMeetsPeerDependency();
 
 // ─── Test 1: Agent discovery + buildPiArgs + registry ──────────────────────
 

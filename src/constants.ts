@@ -5,3 +5,4 @@ export const MAX_POLL_ERRORS = 3; // consecutive poll failures before giving up 
 
 /** Max tool lines in foreground onUpdate (keeps renderCall header visible). */
 export const FOREGROUND_PROGRESS_MAX_TOOL_LINES = 5;
+export const FOREGROUND_PROGRESS_POLL_MS = 1_000;

@@ -9,7 +9,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, dirname, basename, resolve } from "node:path";
 import { parseToolList } from "./agent-tools.js";
 import { parseMergedDisallowedTools } from "./policy.js";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { buildPiArgv } from "./subagent/buildArgv.js";
+import { FOREGROUND_PROGRESS_MAX_TOOL_LINES } from "./constants.js";
 
 
 export function parseMarkdownFrontmatter(content: string): {
@@ -48,6 +50,9 @@ export interface AgentConfig {
   /** Explicit allowlist from frontmatter `tools:` */
   tools?: string | string[];
   disallowedTools?: string[];
+  hidden?: boolean;
+  proactive?: boolean;
+  readonly?: boolean;
   body: string;
   source: "project" | "user" | "bundled";
   path: string;
@@ -83,7 +88,7 @@ export const TASK_BACKGROUND_DEFAULT = true;
 
 export const TASK_PROMPT_INSTRUCTIONS = `Your final assistant message IS the result the parent agent will read.
 
-When you are done, end your final assistant message with a clear, self-contained summary in plain text. Do not wrap it in XML tags. Do not write a RESULT.md file — the parent agent reads your final assistant message from the session JSONL, not from any file.`;
+When you are done, end with the XML envelope described below (or the <result> block from your agent instructions). Do not write a RESULT.md file — the parent reads your final assistant message from the session JSONL, not from any file.`;
 
 export const OUTPUT_FORMAT_GUIDE = TASK_PROMPT_INSTRUCTIONS;
 
@@ -94,7 +99,7 @@ export const OUTPUT_FORMAT_GUIDE = TASK_PROMPT_INSTRUCTIONS;
  * this to the child prompt so the child knows to wrap its final result
  * in these tags (the parent then extracts them into the result section).
  */
-export const TASK_RESULT_XML_INSTRUCTIONS = `When the task is complete, wrap the final result in this XML envelope (or the <episode> block from your agent prompt with the same inner tags). Nothing after the closing tag:
+export const TASK_RESULT_XML_INSTRUCTIONS = `When the task is complete, wrap the final result in this XML envelope (or the agent's <result> block with the same inner tags). Nothing after the closing tag:
 
 <status>success | failure | blocked | partial</status>
 <summary>One-line summary of the outcome.</summary>
@@ -105,7 +110,7 @@ export const TASK_RESULT_XML_INSTRUCTIONS = `When the task is complete, wrap the
 <next_steps>Follow-up actions. <checks> is accepted as an alias.</next_steps>
 <confidence>high | medium | low</confidence>
 
-<decisions> (planner) is merged into findings. The parent parses these tags for the task UI.`;
+<decisions> is merged into findings. The parent parses these tags for the task UI.`;
 
 
 export const TASK_TOOL_DESCRIPTION = `Launch a new agent to handle complex, multistep tasks autonomously.
@@ -333,7 +338,7 @@ export function buildTmuxSplitWindowArgs(
 
 export type TaskEnvelopeState = "running" | "completed" | "error";
 
-/** Machine-readable task handoff (OpenCode task.ts style). */
+/** Machine-readable task handoff envelope for parent parsing. */
 export function formatTaskEnvelope(input: {
   taskId: string;
   state: TaskEnvelopeState;
@@ -416,11 +421,15 @@ export function loadAgentsFromDir(
       | string
       | string[]
       | undefined;
+    const hidden = parseBool(frontmatter.hidden);
+    const proactive = parseBool(frontmatter.proactive);
+    const readonly = parseBool(frontmatter.readonly);
     // Always-on xAI disallow list — these tools are never useful for
     // task subagents and risk leaking provider-specific behavior.
     const withDefaults = [
       ...parseToolList(disallowedRaw),
       ...DEFAULT_DISALLOWED_TOOLS,
+      ...(readonly ? READONLY_TOOL_DENY : []),
     ];
     const merged = parseMergedDisallowedTools(withDefaults.join(","));
     const disallowedTools = merged.length > 0 ? merged : undefined;
@@ -435,6 +444,9 @@ export function loadAgentsFromDir(
       thinking: frontmatter.thinking,
       tools: tools.length > 0 ? tools : undefined,
       disallowedTools,
+      hidden,
+      proactive,
+      readonly,
       body,
       source,
       path: filePath,
@@ -472,6 +484,87 @@ export function discoverAgents(
     ),
     piDir,
   };
+}
+
+/** Mutating / delegation tools denied when `readonly: true`. Bash is not denied — use explicit `tools:` or `disallowed_tools` to block shell. */
+export const READONLY_TOOL_DENY = [
+  "write",
+  "edit",
+  "apply_patch",
+  "harness",
+] as const;
+
+export function parseBool(value: unknown): boolean | undefined {
+  if (value === true || value === "true" || value === "yes" || value === "1")
+    return true;
+  if (value === false || value === "false" || value === "no" || value === "0")
+    return false;
+  return undefined;
+}
+
+export function isAgentHidden(agent: AgentConfig): boolean {
+  return agent.hidden === true;
+}
+
+export function isAgentProactive(agent: AgentConfig): boolean {
+  return agent.proactive === true;
+}
+
+export function getTaskAgents(agents: AgentConfig[]): AgentConfig[] {
+  return agents.filter((a) => !isAgentHidden(a));
+}
+
+export type TaskAgentPreflightError = {
+  text: string;
+  error: string;
+};
+
+export function resolveTaskAgentPreflight(
+  agents: AgentConfig[],
+  agentType: string,
+): { ok: true; agent: AgentConfig } | { ok: false; result: TaskAgentPreflightError } {
+  const agent = agents.find((a) => a.name === agentType);
+  if (agent && isAgentHidden(agent)) {
+    return {
+      ok: false,
+      result: {
+        text: `Agent "${agentType}" is hidden and cannot be invoked via the task tool.`,
+        error: `Hidden agent: ${agentType}`,
+      },
+    };
+  }
+  if (!agent) {
+    const list = formatAgentList(getTaskAgents(agents));
+    return {
+      ok: false,
+      result: {
+        text: `Unknown agent: "${agentType}".\nAvailable agents:\n${list}`,
+        error: `Unknown agent: ${agentType}`,
+      },
+    };
+  }
+  return { ok: true, agent };
+}
+
+export function buildTaskToolDescription(agents: AgentConfig[]): string {
+  const visible = getTaskAgents(agents);
+  const proactive = visible.filter(isAgentProactive);
+  const proactiveBlock =
+    proactive.length > 0
+      ? [
+          "",
+          "PROACTIVE — delegate via task without user @mention when triggers match (see parent APPEND_SYSTEM.md):",
+          ...proactive.map((a) => `- ${a.name}: ${a.description.replace(/\s+/g, " ").trim()}`),
+        ].join("\n")
+      : "";
+
+  return [
+    TASK_TOOL_DESCRIPTION,
+    "",
+    "Available agents:",
+    formatAgentList(visible),
+    proactiveBlock,
+  ].join("\n");
 }
 
 export function formatAgentList(agents: AgentConfig[]): string {
@@ -767,6 +860,31 @@ export function formatElapsed(ms: number): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return r > 0 ? `${m}m ${r}s` : `${m}m`;
+}
+
+/** Tool lines for foreground onUpdate; use the same sessionDir as countToolUses. */
+export function readProgress(
+  sessionDir: string,
+  sessionName?: string,
+): string[] {
+  const { recent } = readRecentToolCalls(
+    sessionDir,
+    FOREGROUND_PROGRESS_MAX_TOOL_LINES,
+    sessionName,
+  );
+  return recent.map((c) => `  ${c.name}${c.detail ? ` ${c.detail}` : ""}`);
+}
+
+export function formatForegroundProgressText(
+  progress: {
+    agentType: string;
+    toolUses: number;
+    durationMs: number;
+    outputLines: string[];
+  },
+  _theme: Theme,
+): string {
+  return progress.outputLines.join("\n");
 }
 
 export function formatToolCallsSummaryBlock(

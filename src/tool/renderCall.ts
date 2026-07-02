@@ -1,46 +1,54 @@
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { ForegroundProgressDetails } from "./foregroundProgress.js";
+import { formatElapsed } from "../helpers.js";
 
-type TaskArgs = {
-  agent_type: string;
-  description: string;
-  background?: boolean;
-};
+/** Sticky header only: agent • tools • duration. Tool lines stream via onUpdate content. */
+export function renderCall(
+  args: Record<string, unknown>,
+  theme: Theme,
+): InstanceType<typeof Container> {
+  const container = new Container();
+  const progress = args._taskRunningProgress as
+    | {
+        agentType?: string;
+        toolUses?: number;
+        durationMs?: number;
+        outputLines?: string[];
+      }
+    | undefined;
 
-function readProgress(
-  partialResult: unknown,
-): ForegroundProgressDetails["_taskRunningProgress"] | undefined {
-  if (!partialResult || typeof partialResult !== "object") return undefined;
-  const o = partialResult as Record<string, unknown>;
-  const details = o.details as ForegroundProgressDetails | undefined;
-  if (details?._taskRunningProgress) return details._taskRunningProgress;
-  return (o as ForegroundProgressDetails)._taskRunningProgress;
+  const agentType =
+    progress?.agentType ?? String(args.agent_type ?? "task");
+  const description = String(args.description ?? "").trim();
+  const toolUses = progress?.toolUses ?? 0;
+  const elapsedMs = progress?.durationMs ?? 0;
+
+  const agent = theme.fg("toolTitle", agentType);
+  const sep = theme.fg("muted", " • ");
+
+  const summary =
+    toolUses === 0 && elapsedMs < 1_000 && description
+      ? agent +
+        sep +
+        theme.fg("muted", truncateStickyDescription(description))
+      : agent +
+        sep +
+        theme.fg("text", formatToolCount(toolUses)) +
+        sep +
+        theme.fg("success", formatElapsed(elapsedMs));
+
+  container.addChild(new Text(summary, 0, 0));
+
+  return container;
 }
 
-/** Sticky call header: collapsed summary; Ctrl+O expands foreground tool details. */
-export function renderCall(
-  args: TaskArgs,
-  theme: Theme,
-  context: unknown,
-): InstanceType<typeof Text> {
-  const toolContext = context as { expanded?: boolean; partialResult?: unknown };
-  const progress = readProgress(toolContext.partialResult);
-  if (progress) {
-    const hint = toolContext.expanded
-      ? "ctrl+o to collapse"
-      : "ctrl+o to expand";
-    const lines =
-      toolContext.expanded && progress.lines ? `\n${progress.lines}` : "";
-    return new Text(
-      theme.fg("toolTitle", `${progress.summary}${lines}\n  ${hint}`),
-      0,
-      0,
-    );
-  }
-  return new Text(
-    theme.fg("toolTitle", `${args.agent_type} - ${args.description}`),
-    0,
-    0,
-  );
+const STICKY_DESCRIPTION_MAX = 72;
+
+function truncateStickyDescription(text: string): string {
+  if (text.length <= STICKY_DESCRIPTION_MAX) return text;
+  return `${text.slice(0, STICKY_DESCRIPTION_MAX - 1)}…`;
+}
+
+function formatToolCount(n: number): string {
+  return n === 1 ? "1 toolcall" : `${n} toolcalls`;
 }

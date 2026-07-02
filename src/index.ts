@@ -41,11 +41,11 @@ import {
 } from "./conversation.js";
 import {
   TASK_BACKGROUND_DEFAULT,
-  TASK_TOOL_DESCRIPTION,
   buildPiArgs,
+  buildTaskToolDescription,
   countToolUses,
   discoverAgents,
-  formatAgentList,
+  resolveTaskAgentPreflight,
   buildTaskEnvelope,
   formatBackgroundReceipt,
   parseResultXml,
@@ -157,7 +157,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "task",
     label: "Task",
-    description: TASK_TOOL_DESCRIPTION,
+    description: buildTaskToolDescription(discoverAgents(process.cwd(), BUNDLED_AGENT_DIR).agents),
     promptSnippet: "Delegate work to a specialist agent via the task tool",
     promptGuidelines: [
       "Delegate complex multi-step work to a specialist agent when the work benefits from isolated context",
@@ -168,33 +168,33 @@ export default function (pi: ExtensionAPI) {
       "For background tasks: DO NOT sleep, poll, or check on progress. You'll be notified",
       "After delegated work completes, read changed files, review diff, verify scope, and run relevant checks",
       "Send the user a concise summary of the result since the agent's output is not user-visible",
+      "For repo-local search (explore/general), name an absolute repo path in the prompt when the parent cwd is not the target (e.g. pi-task extension repo vs app repo)",
         ],
         parameters: taskParametersSchema(),
 
-        async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+        async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const { agents, piDir } = discoverAgents(ctx.cwd, BUNDLED_AGENT_DIR);
       const parentToolNames = pi
         .getAllTools()
         .map((tool) => tool.name)
         .filter(Boolean);
-      const agent = agents.find((a) => a.name === params.agent_type);
-
-      if (!agent) {
-        const list = formatAgentList(agents);
+      const preflight = resolveTaskAgentPreflight(agents, params.agent_type);
+      if (!preflight.ok) {
         return {
           content: [
             {
               type: "text" as const,
-              text: `Unknown agent: "${params.agent_type}".\nAvailable agents:\n${list}`,
+              text: preflight.result.text,
             },
           ],
           details: {
             phase: "failed" as const,
-            error: `Unknown agent: ${params.agent_type}`,
+            error: preflight.result.error,
           },
           isError: true,
         };
       }
+      const agent = preflight.agent;
 
       // ── Resolve task identity: new, task resume, or conversation resume ──
       const conversationId = normalizeConversationId(params.conversation_id);
@@ -627,13 +627,12 @@ export default function (pi: ExtensionAPI) {
         });
 
                     const stopProgress = startForegroundProgressPolling({
-                          piDir,
                           sessionDir,
                           sessionName,
                           agentType: agent.name,
                           description: descText,
                           startedAt,
-                          onUpdate: _onUpdate,
+                          onUpdate: onUpdate ?? (() => {}),
                         });
                         const onAbort = () => stopProgress();
                         signal?.addEventListener("abort", onAbort, { once: true });

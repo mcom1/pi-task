@@ -745,14 +745,14 @@ import {
       ].join("\n"),
     );
     writeFileSync(
-      join(dir, "worker.md"),
+      join(dir, "general.md"),
       [
         "---",
-        "description: Fast implementer",
+        "description: Multi-step implementer",
         "thinking: high",
         "---",
         "",
-        "# Worker Agent",
+        "# General Agent",
         "You implement code.",
       ].join("\n"),
     );
@@ -784,11 +784,11 @@ import {
     assert.equal(explore!.source, "user", t + " source");
     assert.match(explore!.body, /# Explore Agent/, t + " body");
 
-    const worker = agents.find((a) => a.name === "worker");
-    assert.ok(worker, t + " worker exists");
-    assert.equal(worker!.thinking, "high", t + " thinking");
+    const general = agents.find((a) => a.name === "general");
+    assert.ok(general, t + " general exists");
+    assert.equal(general!.thinking, "high", t + " thinking");
     assert.ok(
-      worker!.disallowedTools?.includes("xai_generate_text"),
+      general!.disallowedTools?.includes("xai_generate_text"),
       t + " default xai disallow",
     );
   } finally {
@@ -853,8 +853,8 @@ import {
       path: "/a",
     },
     {
-      name: "worker",
-      description: "Fast implementer",
+      name: "general",
+      description: "Multi-step implementer",
       body: "",
       source: "user",
       path: "/b",
@@ -862,7 +862,7 @@ import {
   ];
   const r = formatAgentList(agents);
   assert.match(r, /explore \(project\): Read-only explorer/, t + " explore");
-  assert.match(r, /worker \(user\): Fast implementer/, t + " worker");
+  assert.match(r, /general \(user\): Multi-step implementer/, t + " general");
 }
 
 // ─── Integration: discoverAgents with fixture ────────────────────────────────
