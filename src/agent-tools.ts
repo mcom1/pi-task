@@ -1,15 +1,11 @@
 /**
- * Shared agent tool allowlist resolution for task + harness.
- *
- * Frontmatter:
- *   tools: comma list → explicit allowlist base
- *   (omit tools) → BUILTIN_TOOL_NAMES + TASK_DEFAULT_EXTENSION_TOOLS
- *   disallowed_tools: subtract (+ xai_* via parseMergedDisallowedTools)
+ * Shared agent tool allowlist resolution for task subagents.
  */
+
 
 import { parseMergedDisallowedTools } from "./policy.js";
 
-/** Pi built-in tools (matches harness). */
+/** Pi built-in tools exposed to task subagents when present in the parent session. */
 export const BUILTIN_TOOL_NAMES = [
   "read",
   "bash",
@@ -39,7 +35,6 @@ export const TASK_DEFAULT_EXTENSION_TOOLS = [
   "diagnostics",
   "compress",
   "task",
-  "harness",
 ] as const;
 
 /** @deprecated Use BUILTIN_TOOL_NAMES + TASK_DEFAULT_EXTENSION_TOOLS */

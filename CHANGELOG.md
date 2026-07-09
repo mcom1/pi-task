@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-10
+
+### Added
+
+- `test/taskWidget.test.ts` coverage for foreground/background widget spacing, connector layout, collapse behavior, and waiting/done/error states.
+
+### Changed
+
+- Task launch receipts now show the exact subagent JSONL path instead of tmux session/artifact directory lines.
+- Foreground textual progress now mirrors the background receipt shape to avoid duplicating the widget's latest tool-call line.
+- Background widget now uses the same two-line header/detail tree layout as foreground.
+- `task` docs and schema now require a stronger prompt contract: goal, non-goals, write/read policy, stop condition, and verification recipe.
+- `npm test` now includes `test/taskWidget.test.ts`.
+
+### Fixed
+
+- Foreground widget now collapses in-flight tool-call output instead of repeating many lines.
+- Background widget spacing/indent is visually aligned across waiting, running, done, and error states.
+- Removed stale harness references and dead foreground-progress `outputLines` plumbing.
+
 ## [0.2.4] - 2026-07-03
 
 ### Added

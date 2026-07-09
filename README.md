@@ -36,6 +36,13 @@ Restart Pi after installing or changing extension config.
 
 ## Usage
 
+Prompt contract for every non-trivial task:
+- goal: the exact outcome wanted
+- non-goals: what to avoid or leave untouched
+- write/read policy: whether the child may edit or must stay read-only
+- stop condition: what must be true before it can stop
+- verification recipe: checks to run or evidence to gather
+
 Foreground task:
 
 ```json
@@ -43,18 +50,18 @@ Foreground task:
   "agent_type": "explore",
   "description": "Find auth flow",
   "background": false,
-  "prompt": "Map the auth flow. Do not edit files. Return file:line evidence."
+  "prompt": "Goal: map the auth flow. Non-goals: do not edit files. Write/read policy: read-only. Stop condition: auth entrypoints, middleware, and session issuance are mapped. Verification: return file:line evidence."
 }
 ```
 
 Background task:
 
-```
+```json
 {
   "agent_type": "scout",
   "description": "Research SDK docs",
   "background": true,
-  "prompt": "Research the latest Pi SDK extension APIs. Cite official docs."
+  "prompt": "Goal: research the latest Pi SDK extension APIs. Non-goals: no code changes. Write/read policy: read-only. Stop condition: official docs and key APIs are summarized. Verification: cite official docs."
 }
 ```
 
@@ -88,6 +95,8 @@ Durable specialist conversation:
 
     Note: true conversation resume requires the tmux/CLI backend so Pi can reopen the saved subagent session. SDK fallback can run foreground or background one-shot tasks, but it cannot resume a prior Pi session.
 
+If Pi restarts while background tasks are still running, pi-task restores them on startup. Treat restored tasks as still in flight: do not relaunch overlapping work unless you intentionally want a second competing run. Use `/task-sessions` to inspect what was restored before taking action.
+
 ## Agent precedence
 
 When two agents have the same name, later sources override earlier ones:
@@ -114,13 +123,24 @@ prompt_mode: append
 # Agent instructions
 ```
 
-Pi has one session parent agent; all `*.md` agents under `agents/` are **task subagents** only. Use `hidden` for internal/harness-only agents.
+Pi has one session parent agent; all `*.md` agents under `agents/` are **task subagents** only. Use `hidden` for internal/orchestration-only agents.
 
-`tools:` is an explicit allowlist. If omitted, pi-task starts from the tools actually registered in the parent Pi session, then removes `disallowed_tools`. `readonly: true` always adds write/edit/apply_patch/harness to the deny list, even when `tools:` is explicit. It does **not** deny `bash`; use explicit `tools:` or `disallowed_tools: bash` when an agent must not run shell. Recursive `task` delegation is always blocked.
+`tools:` is an explicit allowlist. If omitted, pi-task starts from the tools actually registered in the parent Pi session, then removes `disallowed_tools`. `readonly: true` always adds write/edit/apply_patch to the deny list, even when `tools:` is explicit. It does **not** deny `bash`; use explicit `tools:` or `disallowed_tools: bash` when an agent must not run shell. Recursive `task` delegation is always blocked.
 
-Bundled agents in `agents/`: `explore`, `scout`, `general`, `reviewer`. `readonly` blocks mutating tools (write/edit/apply_patch/harness), not `bash`.
+Bundled agents in `agents/`: `explore`, `scout`, `general`, `reviewer`. `readonly` blocks mutating tools (write/edit/apply_patch), not `bash`.
 
 When the target repo is not the parent session cwd (e.g. verifying the `pi-task` extension while cwd is an app), put an **absolute path** in the task `prompt` so explore/general search the right tree.
+
+## Orchestration patterns with one tool
+
+You do not need a separate orchestration tool for most work. Keep `task` as the only primitive and express orchestration in the prompt and calling pattern.
+
+- Fan-out and synthesize: launch several read-only tasks in one message, then run one reviewer/synthesizer task after they complete.
+- Adversarial verification: pair a producer task with a separate skeptic/verifier task using the same rubric.
+- Tournament/ranking: spawn multiple candidate-producing tasks, then one comparator task that ranks them pairwise.
+- Loop until done: rerun a narrowly scoped task with an explicit stop condition like "no new findings for two rounds" or "no remaining failing checks".
+
+Keep the parent responsible for orchestration decisions and final verification. The child tasks do the work; the parent should not duplicate it while they run. Prefer improving prompts and reviewer patterns before inventing a second orchestration tool.
 
 ## Environment
 

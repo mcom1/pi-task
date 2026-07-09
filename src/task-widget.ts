@@ -27,10 +27,8 @@ const SPINNER_FRAMES = [
   "\u280F",
 ];
 /** Keep status row clear when many subagent toolcalls (foreground overlap fix). */
-const MAX_TOOL_LINES = 8;
 const MAX_BACKGROUND_LINES = 8;
 const MAX_WIDTH = 120;
-const TREE_MIDDLE = "\u251C\u2500"; // ├─
 const TREE_LAST = "\u2514\u2500"; // └─
 
 function color(
@@ -53,7 +51,7 @@ function toolStatusMark(
       return color(theme, "error", "\u2717");
     case "in_progress":
     default:
-      return color(theme, "accent", spinner);
+      return color(theme, "accent", ` ${spinner}`);
   }
 }
 
@@ -61,25 +59,8 @@ function formatToolCount(count: number): string {
   return `${count} ${count === 1 ? "tool" : "tools"}`;
 }
 
-function formatLatestTool(
-  task: WidgetTask,
-  spinner: string,
-  theme: ThemeLike | null | undefined,
-): string {
-  const latest = task.recentCalls?.at(-1);
-  if (!latest) {
-    return `${toolStatusMark(theme, "in_progress", spinner)} ${color(theme, "dim", "waiting")}`;
-  }
-
-  const detail = latest.detail ? ` ${latest.detail}` : "";
-  return (
-    `${toolStatusMark(theme, latest.status, spinner)} ` +
-    color(theme, "text", latest.name) +
-    color(theme, "dim", detail)
-  );
-}
-
 function renderForegroundTask(
+
   task: WidgetTask,
   now: number,
   maxWidth: number,
@@ -93,7 +74,7 @@ function renderForegroundTask(
   const lines: string[] = [];
 
   const header =
-    color(theme, "accent", spinner) +
+    color(theme, "accent", ` ${spinner}`) +
     " " +
     color(theme, "toolTitle", agentName) +
     color(theme, "dim", description) +
@@ -105,48 +86,78 @@ function renderForegroundTask(
       : "");
   lines.push(truncateToWidth(header, maxWidth));
 
-  const recent = task.recentCalls ?? [];
-  const slice = recent.slice(-MAX_TOOL_LINES);
-  slice.forEach((tc, idx) => {
-    const connector = idx === slice.length - 1 ? TREE_LAST : TREE_MIDDLE;
-    const detail = tc.detail ? `  ${tc.detail}` : "";
+  const latest = task.recentCalls?.at(-1);
+  if (latest) {
+    const hiddenCount = Math.max(0, (task.recentCalls?.length ?? 0) - 1);
+    const detail = latest.detail ? `  ${latest.detail}` : "";
+    const suffix = hiddenCount > 0 ? ` (+${hiddenCount} more)` : "";
     const line =
-      "  " +
-      color(theme, "dim", connector) +
       " " +
-      toolStatusMark(theme, tc.status, spinner) +
+      color(theme, "dim", TREE_LAST) +
+
+
       " " +
-      color(theme, "text", tc.name) +
-      color(theme, "dim", detail);
+      toolStatusMark(theme, latest.status, spinner) +
+      " " +
+      color(theme, "text", latest.name) +
+      color(theme, "dim", detail + suffix);
     lines.push(truncateToWidth(line, maxWidth));
-  });
+  }
 
   return lines;
 }
 
-function renderBackgroundLine(
+function renderBackgroundTask(
   id: string,
   task: WidgetTask,
   now: number,
   maxWidth: number,
   spinner: string,
   theme: ThemeLike | null | undefined,
-): string {
+): string[] {
   const elapsed = formatMs(now - task.startedAt);
-  const latest = formatLatestTool(task, spinner, theme);
-  const line =
-    color(theme, "dim", "- ") +
-    color(theme, "toolTitle", task.agentType) +
-    color(theme, "dim", " \u00b7 ") +
-    color(theme, "accent", id) +
-    color(theme, "dim", " \u00b7 ") +
-    color(theme, "warning", elapsed) +
-    color(theme, "dim", " \u00b7 ") +
-    color(theme, "success", formatToolCount(task.toolUses)) +
-    color(theme, "dim", " \u00b7 ") +
-    latest;
-  return truncateToWidth(line, maxWidth);
+  const lines = [
+    truncateToWidth(
+      color(theme, "dim", "- ") +
+        color(theme, "toolTitle", task.agentType) +
+        color(theme, "dim", " · ") +
+        color(theme, "accent", id) +
+        color(theme, "dim", " · ") +
+        color(theme, "warning", elapsed) +
+        color(theme, "dim", " · ") +
+        color(theme, "success", formatToolCount(task.toolUses)),
+      maxWidth,
+    ),
+  ];
+
+  const latest = task.recentCalls?.at(-1);
+  if (latest) {
+    const hiddenCount = Math.max(0, (task.recentCalls?.length ?? 0) - 1);
+    const detail = latest.detail ? `  ${latest.detail}` : "";
+    const suffix = hiddenCount > 0 ? ` (+${hiddenCount} more)` : "";
+    const line =
+      "  " +
+      color(theme, "dim", TREE_LAST) +
+      " " +
+      toolStatusMark(theme, latest.status, spinner) +
+      (latest.status === "in_progress" ? " " : "  ") +
+      color(theme, "text", latest.name) +
+      color(theme, "dim", detail + suffix);
+    lines.push(truncateToWidth(line, maxWidth));
+  } else {
+    const line =
+      "  " +
+      color(theme, "dim", TREE_LAST) +
+      " " +
+      toolStatusMark(theme, "in_progress", spinner) +
+      " " +
+      color(theme, "dim", "waiting");
+    lines.push(truncateToWidth(line, maxWidth));
+  }
+
+  return lines;
 }
+
 
 export function renderTaskWidget(params: {
   foregroundTasks: Iterable<[string, WidgetTask]>;
@@ -185,7 +196,7 @@ export function renderTaskWidget(params: {
   }
 
   for (const [id, task] of renderedBackground) {
-    lines.push(renderBackgroundLine(id, task, now, maxWidth, spinner, theme));
+    lines.push(...renderBackgroundTask(id, task, now, maxWidth, spinner, theme));
   }
 
   const hidden = backgroundCount - renderedBackground.length;

@@ -44,11 +44,15 @@ export function completeTask(
     background: true,
   });
 
+  const summaryText = parsed.summary?.trim()
+    ? parsed.summary.trim()
+    : content.replace(/\s+/g, " ").trim().slice(0, 240);
+
   ignoreStaleExtensionCtx(() =>
     pi.sendMessage(
       {
         customType: "task-complete",
-        content: `Background task ${id} (${task.agentType}) ${phase}.\n\n${parsed.summary || content}`,
+        content: `Background task ${id} (${task.agentType}) ${phase}.\n\n${summaryText}`,
         display: true,
         details: {
           task_id: id,

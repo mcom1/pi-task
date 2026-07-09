@@ -124,6 +124,13 @@ When NOT to use:
 - To search code within 2-3 files, use Read instead
 - If no available agent fits the task, use other tools directly
 
+Prompt contract:
+- Goal: the exact outcome wanted
+- Non-goals: what to avoid or leave untouched
+- Write/read policy: whether the agent may edit files or must stay read-only
+- Stop condition: what must be true before the task is considered complete
+- Verification recipe: the checks the agent must run or the evidence it must gather
+
 Usage notes:
 1. Provide complete context in the prompt — the subagent starts with a fresh context
 2. Launch multiple agents concurrently when possible (use a single message with multiple tool calls)
@@ -133,6 +140,12 @@ Usage notes:
 6. Clearly tell the agent whether to write code or just research, since it doesn't know the user's intent
 7. The result returned by the agent is not visible to the user. Send a concise summary back to the user
 8. Pass task_id to resume a previous subagent session (continues with its prior context)
+
+Recommended orchestration patterns (still using only task):
+- Fan-out and synthesize: launch several read-only tasks, then one reviewer/synthesizer task
+- Adversarial verification: pair a producer task with an independent skeptic/verifier task
+- Tournament/ranking: launch competing candidates, then a comparator task with a rubric
+- Loop until done: repeat targeted tasks until no new findings or no remaining failures
 
 Background mode (background: true):
 - Launches the subagent asynchronously and returns immediately
@@ -359,15 +372,13 @@ export function formatTaskEnvelope(input: {
 export interface BackgroundReceiptInput {
   taskId: string;
   agentType: string;
-  tmuxSession: string;
-  artifactDir: string;
+  sessionPath: string;
 }
 
 export function formatBackgroundReceipt(input: BackgroundReceiptInput): string {
   return [
     `⎿ Started task ${input.taskId} with ${input.agentType}.`,
-    ` Pi session name: ${input.tmuxSession}.`,
-    ` Subagent sessions: ${input.artifactDir}.`,
+    `  Subagent sessions: ${input.sessionPath}`,
   ].join("\n");
 }
 
@@ -486,12 +497,11 @@ export function discoverAgents(
   };
 }
 
-/** Mutating / delegation tools denied when `readonly: true`. Bash is not denied — use explicit `tools:` or `disallowed_tools` to block shell. */
+/** Mutating tools denied when `readonly: true`. Bash is not denied — use explicit `tools:` or `disallowed_tools` to block shell. */
 export const READONLY_TOOL_DENY = [
   "write",
   "edit",
   "apply_patch",
-  "harness",
 ] as const;
 
 export function parseBool(value: unknown): boolean | undefined {
@@ -877,14 +887,18 @@ export function readProgress(
 
 export function formatForegroundProgressText(
   progress: {
+    taskId: string;
+    sessionPath: string;
     agentType: string;
     toolUses: number;
     durationMs: number;
-    outputLines: string[];
   },
   _theme: Theme,
 ): string {
-  return progress.outputLines.join("\n");
+  return [
+    `⎿ Started task ${progress.taskId} with ${progress.agentType}.`,
+    `  Subagent sessions: ${progress.sessionPath}`,
+  ].join("\n");
 }
 
 export function formatToolCallsSummaryBlock(

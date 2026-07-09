@@ -1,5 +1,5 @@
 /**
- * Read assistant text from pi JSONL session directories (task / harness).
+ * Read assistant text from pi JSONL session directories used by task sessions.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";

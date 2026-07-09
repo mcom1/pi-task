@@ -17,6 +17,7 @@ import {
   buildTmuxSplitWindowArgs,
   chooseTmuxSplitDirection,
   formatBackgroundReceipt,
+  formatForegroundProgressText,
   TASK_BACKGROUND_DEFAULT,
   TASK_RESULT_XML_INSTRUCTIONS,
   TASK_TOOL_DESCRIPTION,
@@ -678,6 +679,28 @@ import {
   assert.equal(text, "  … +1 earlier\n  read\n  ls", t);
 }
 
+{
+  const t = "formatForegroundProgressText returns task receipt lines instead of duplicating widget tool calls";
+  const text = formatForegroundProgressText(
+    {
+      taskId: "task-123",
+      sessionPath: "/tmp/.pi/artifacts/sessions/2026-06-25T07-41-43-885Z_task-123.jsonl",
+      agentType: "reviewer",
+      toolUses: 8,
+      durationMs: 44_100,
+    },
+    {} as never,
+  );
+  assert.equal(
+    text,
+    [
+      "⎿ Started task task-123 with reviewer.",
+      "  Subagent sessions: /tmp/.pi/artifacts/sessions/2026-06-25T07-41-43-885Z_task-123.jsonl",
+    ].join("\n"),
+    t,
+  );
+}
+
 // ─── findPiDir ───────────────────────────────────────────────────────────────
 
 {
@@ -983,40 +1006,55 @@ import {
   );
 }
 
-{
-  const t = "formatBackgroundReceipt returns visible task launch details";
-  const receipt = formatBackgroundReceipt({
-    taskId: "task-123",
-    agentType: "explore",
-    tmuxSession: "pi-task-task-123",
-    artifactDir: "/tmp/.pi/tasks/task-123",
-  });
-  assert.ok(receipt.includes("Started task task-123"), t + " includes task id");
-  assert.ok(receipt.includes("explore"), t + " includes agent type");
-  assert.ok(receipt.includes("pi-task-task-123"), t + " includes session");
-  assert.ok(
-    receipt.includes("/tmp/.pi/tasks/task-123"),
-    t + " includes artifact dir",
-  );
-}
+    {
+      const t = "formatBackgroundReceipt returns visible task launch details";
+      const receipt = formatBackgroundReceipt({
+        taskId: "task-123",
+        agentType: "explore",
+        sessionPath: "/tmp/.pi/artifacts/sessions/2026-06-25T07-41-43-885Z_task-123.jsonl",
+      });
+      assert.ok(receipt.includes("Started task task-123"), t + " includes task id");
+      assert.ok(receipt.includes("explore"), t + " includes agent type");
+      assert.ok(
+        !receipt.includes("Pi session name:"),
+        t + " omits the tmux session name line",
+      );
+      assert.ok(
+        receipt.includes("/tmp/.pi/artifacts/sessions/2026-06-25T07-41-43-885Z_task-123.jsonl"),
+        t + " includes exact session jsonl path",
+      );
+    }
 
-{
-  const t =
-    "task tool description matches background default and verification policy";
-  assert.equal(TASK_BACKGROUND_DEFAULT, true, t + " default is true");
-  assert.ok(
-    TASK_TOOL_DESCRIPTION.includes("Background is the default"),
-    t + " documents background default",
-  );
-  assert.ok(
-    !TASK_TOOL_DESCRIPTION.includes("Foreground is the default"),
-    t + " does not claim foreground default",
-  );
-  assert.ok(
-    TASK_TOOL_DESCRIPTION.includes("Do not trust delegated output blindly"),
-    t + " requires verification",
-  );
-}
+
+    {
+      const t =
+        "task tool description matches background default, prompt contract, and verification policy";
+      assert.equal(TASK_BACKGROUND_DEFAULT, true, t + " default is true");
+      assert.ok(
+        TASK_TOOL_DESCRIPTION.includes("Background is the default"),
+        t + " documents background default",
+      );
+      assert.ok(
+        !TASK_TOOL_DESCRIPTION.includes("Foreground is the default"),
+        t + " does not claim foreground default",
+      );
+      assert.ok(
+        TASK_TOOL_DESCRIPTION.includes("Do not trust delegated output blindly"),
+        t + " requires verification",
+      );
+      for (const required of [
+        "Goal: the exact outcome wanted",
+        "Non-goals: what to avoid or leave untouched",
+        "Write/read policy",
+        "Stop condition",
+        "Verification recipe",
+        "Fan-out and synthesize",
+        "Adversarial verification",
+      ]) {
+        assert.ok(TASK_TOOL_DESCRIPTION.includes(required), `${t}: includes ${required}`);
+      }
+    }
+
 
 {
   const t = "XML instructions preserve the required task result tags";

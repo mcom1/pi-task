@@ -375,7 +375,7 @@ export default function (pi: ExtensionAPI) {
             content: [
               {
                 type: "text" as const,
-                text: `Resumed task "${params.task_id}". The subagent is running in background and will notify on completion.`,
+                text: `Resumed task "${params.task_id}". The subagent is still running in background; avoid relaunching overlapping work. Use /task-sessions to inspect it, and it will notify on completion.`,
               },
             ],
             details: {
@@ -626,14 +626,16 @@ export default function (pi: ExtensionAPI) {
           background: false,
         });
 
-                    const stopProgress = startForegroundProgressPolling({
-                          sessionDir,
-                          sessionName,
-                          agentType: agent.name,
-                          description: descText,
-                          startedAt,
-                          onUpdate: onUpdate ?? (() => {}),
-                        });
+                        const stopProgress = startForegroundProgressPolling({
+                              taskId: id,
+                              sessionDir,
+                              sessionName,
+                              agentType: agent.name,
+                              description: descText,
+                              startedAt,
+                              onUpdate: onUpdate ?? (() => {}),
+                            });
+
                         const onAbort = () => stopProgress();
                         signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -775,12 +777,11 @@ export default function (pi: ExtensionAPI) {
         content: [
           {
             type: "text" as const,
-            text: formatBackgroundReceipt({
-              taskId: id,
-              agentType: agent.name,
-              tmuxSession: sessionName,
-              artifactDir: artifactsDir,
-            }),
+                text: formatBackgroundReceipt({
+                  taskId: id,
+                  agentType: agent.name,
+                  sessionPath: join(sessionDir, `${sessionName}.jsonl`),
+                }),
           },
         ],
         details: {

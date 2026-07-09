@@ -7,7 +7,7 @@ export function taskParametersSchema() {
     }),
     prompt: Type.String({
       description:
-        "The complete task for the agent to perform. Be detailed and self-contained.",
+        "The complete task for the agent to perform. Be detailed and self-contained. Include goal, non-goals, write/read policy, stop condition, and verification recipe.",
     }),
     description: Type.String({
       description: "A short (3-5 word) summary of the task",

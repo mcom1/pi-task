@@ -45,11 +45,11 @@ No description.`,
     assert.equal(a.hidden, true, t + " hidden");
     assert.equal(a.proactive, true, t + " proactive");
     assert.equal(a.readonly, true, t + " readonly");
-    assert.ok(
-      a.disallowedTools?.includes("write") &&
-        a.disallowedTools.includes("harness"),
-      t + " readonly deny list",
-    );
+      assert.ok(
+        !a.disallowedTools.includes("harness"),
+        "readonly does not inject absent orchestration tools into disallowed tools",
+      );
+
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

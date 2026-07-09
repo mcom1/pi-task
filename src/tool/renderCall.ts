@@ -14,7 +14,6 @@ export function renderCall(
         agentType?: string;
         toolUses?: number;
         durationMs?: number;
-        outputLines?: string[];
       }
     | undefined;
 

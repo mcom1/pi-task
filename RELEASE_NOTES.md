@@ -1,17 +1,17 @@
-# pi-task v0.2.4
+# pi-task v0.2.5
 
 ## Highlights
 
-- **Reliable background polling:** prevents overlapping poll ticks from completing the same background task twice, and reads subagent JSONL from `sessions/<taskId>` consistently.
-- **Better failure diagnostics:** when a tmux subagent exits without a result, the parent report now includes the expected session directory, JSONL presence, and pane tail when available.
-- **Safer subagent startup:** `PI_TASK_CHILD_NO_EXTENSIONS=1` runs child Pi sessions with `--no-extensions` for debugging extension-load crashes.
-- **Cleaner task UI:** shared task title renderer keeps running and completed task titles consistent; completion notifications use the theme `toolSuccessBg` background.
-- **Tests:** polling concurrency regression, failure diagnostics coverage, and render hint expectations updated.
+- **One-tool orchestration:** `task` guidance is stricter and clearer — prompt contract now explicitly requires goal, non-goals, write/read policy, stop condition, and verification recipe.
+- **Cleaner task receipts:** foreground textual progress and background launch receipts now both show the exact subagent JSONL path, without noisy tmux/session-name boilerplate.
+- **Cleaner widgets:** foreground and background widgets both use a compact header + tree-detail layout, with collapsed `(+N more)` tool-call summaries and aligned spacing.
+- **Harness cleanup:** removed stale harness references and dead foreground-progress data plumbing so the extension is cleaner around its single-tool design.
+- **Tests:** widget regression coverage is now part of the main `npm test` run.
 
 ## Upgrade
 
 ```bash
-pi install @heyhuynhgiabuu/pi-task@0.2.4
+pi install @heyhuynhgiabuu/pi-task@0.2.5
 # or link local: pi extensions link ~/dev/projects/pi-task
 ```
 
