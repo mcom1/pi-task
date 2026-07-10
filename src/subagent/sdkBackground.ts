@@ -15,6 +15,7 @@ export interface SdkBackgroundTaskInput {
   artifactsDir: string;
   conversationId?: string;
   run: () => Promise<SdkBackgroundResult>;
+  onSettled?: () => void;
   now?: () => number;
 }
 
@@ -66,7 +67,8 @@ export function startSdkBackgroundTask(input: SdkBackgroundTaskInput): void {
         completedAt: now(),
         background: true,
       });
-    });
+    })
+    .finally(() => input.onSettled?.());
 }
 
 export function formatSdkBackgroundReceipt(id: string): string {

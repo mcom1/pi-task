@@ -1,16 +1,13 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { formatMs } from "../helpers.js";
-import {
-  TASK_WIDGET_RENDER_MS,
-  renderTaskWidget,
-  type ThemeLike,
-} from "../task-widget.js";
+import { renderTaskWidget, type ThemeLike } from "../task-widget.js";
 import { ignoreStaleExtensionCtx } from "../stale-ctx.js";
 import type { BackgroundTask } from "../types.js";
 
 export interface TaskWidgetController {
   ensureTaskWidget(targetCtx: ExtensionContext): void;
+  requestRender(): void;
   clearTaskWidgetIfIdle(): void;
   dispose(): void;
 }
@@ -20,15 +17,8 @@ export function createTaskWidgetController(
   backgroundTasks: Map<string, BackgroundTask>,
 ): TaskWidgetController {
   let widgetCtx: ExtensionContext | null = null;
-  let widgetTimer: ReturnType<typeof setInterval> | null = null;
+  let requestWidgetRender: (() => void) | null = null;
   let widgetTheme: ThemeLike | null = null;
-
-  function stopWidget() {
-    if (widgetTimer) {
-      clearInterval(widgetTimer);
-      widgetTimer = null;
-    }
-  }
 
   function renderWidget(width: number): string[] {
     try {
@@ -57,23 +47,27 @@ export function createTaskWidgetController(
     }
   }
 
+  function requestRender(): void {
+    requestWidgetRender?.();
+  }
+
   function ensureTaskWidget(targetCtx: ExtensionContext): void {
-    if (widgetCtx || targetCtx.mode !== "tui") return;
+    if (targetCtx.mode !== "tui") return;
+    if (widgetCtx) {
+      requestRender();
+      return;
+    }
     widgetCtx = targetCtx;
     ignoreStaleExtensionCtx(() =>
       targetCtx.ui.setWidget("task", (tui, theme) => {
         widgetTheme = theme ?? null;
-        widgetTimer = setInterval(
-          () => tui.requestRender(),
-          TASK_WIDGET_RENDER_MS,
-        );
-        widgetTimer.unref?.();
+        requestWidgetRender = () => tui.requestRender();
         return {
           render: (width: number) => renderWidget(width),
-          invalidate: () => {},
+          invalidate: requestRender,
           dispose: () => {
             widgetTheme = null;
-            stopWidget();
+            requestWidgetRender = null;
           },
         };
       }),
@@ -81,13 +75,16 @@ export function createTaskWidgetController(
   }
 
   function clearTaskWidgetIfIdle(): void {
-    if (foregroundTasks.size > 0 || backgroundTasks.size > 0) return;
+    if (foregroundTasks.size > 0 || backgroundTasks.size > 0) {
+      requestRender();
+      return;
+    }
     if (widgetCtx) {
       const ctx = widgetCtx;
       ignoreStaleExtensionCtx(() => ctx.ui.setWidget("task", undefined));
       widgetCtx = null;
     }
-    stopWidget();
+    requestWidgetRender = null;
   }
 
   function dispose(): void {
@@ -97,8 +94,8 @@ export function createTaskWidgetController(
       widgetCtx = null;
     }
     widgetTheme = null;
-    stopWidget();
+    requestWidgetRender = null;
   }
 
-  return { ensureTaskWidget, clearTaskWidgetIfIdle, dispose };
+  return { ensureTaskWidget, requestRender, clearTaskWidgetIfIdle, dispose };
 }

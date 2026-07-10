@@ -5,6 +5,7 @@ export interface BackgroundTask {
   agentType: string;
   sessionName: string;
   paneId?: string;
+  backend?: "sdk" | "tmux";
   originalPane: string | null;
   description: string;
   startedAt: number;

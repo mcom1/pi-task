@@ -37,6 +37,7 @@ export function startBackgroundPolling(
 
     try {
       for (const [id, task] of deps.backgroundTasks) {
+        if (task.backend === "sdk") continue;
         try {
           const elapsed = Date.now() - task.startedAt;
           if (elapsed > deps.TASK_TIMEOUT_MS) {

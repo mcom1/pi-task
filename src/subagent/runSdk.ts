@@ -11,6 +11,11 @@ export interface RunSdkSubagentOptions {
   tools?: string[];
   excludeTools?: string[];
   systemPrompt?: string;
+  /**
+   * Called with the AgentSession after creation but before prompt().
+   * Return an unsubscribe function that will be called on cleanup.
+   */
+  onSession?: (session: any) => () => void;
 }
 
 async function resolveModel(ctx: ExtensionContext, requested?: string) {
@@ -52,6 +57,7 @@ export async function runSdkSubagent(options: RunSdkSubagentOptions): Promise<{
   const previousDisabled = process.env.PI_TASK_TOOL_DISABLED;
   process.env.PI_TASK_TOOL_DISABLED = "1";
   let session: any;
+  let unsubSession: (() => void) | undefined;
   try {
     const agentDir = getAgentDir();
     const resourceLoader = new DefaultResourceLoader({
@@ -73,12 +79,18 @@ export async function runSdkSubagent(options: RunSdkSubagentOptions): Promise<{
       resourceLoader,
     }));
 
+    // Subscribe to tool execution events before prompt()
+    if (options.onSession) {
+      unsubSession = options.onSession(session);
+    }
+
     await session.prompt(options.prompt);
 
     const sessionPath = session.sessionFile;
     const output = getLastAssistantText(session.messages);
     return { output: output.trim(), sessionPath };
   } finally {
+    unsubSession?.();
     session?.dispose?.();
     if (previousDisabled === undefined) {
       delete process.env.PI_TASK_TOOL_DISABLED;

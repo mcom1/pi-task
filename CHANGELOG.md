@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-07-10
+
+### Added
+
+- SDK widget regression coverage for tool events, polling isolation, lifecycle invalidation, and background settlement.
+
+### Changed
+
+- Non-tmux SDK task widgets now update only on task state changes instead of repainting continuously.
+- Foreground SDK task results now use the same structured expand/collapse result contract as tmux and background tasks.
+
+### Fixed
+
+- SDK task widgets retain bash invocation details, render the newest tool call, and keep background rows until SDK settlement.
+- Tmux foreground tasks continue using JSONL tool-stat polling after backend discrimination was introduced.
+
 ## [0.2.5] - 2026-07-10
 
 ### Added

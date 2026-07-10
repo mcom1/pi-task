@@ -43,8 +43,9 @@ import {
   TASK_BACKGROUND_DEFAULT,
   buildPiArgs,
   buildTaskToolDescription,
-  countToolUses,
-  discoverAgents,
+      countToolUses,
+      discoverAgents,
+      subscribeToolEvents,
   resolveTaskAgentPreflight,
   buildTaskEnvelope,
   formatBackgroundReceipt,
@@ -120,6 +121,7 @@ export default function (pi: ExtensionAPI) {
     foregroundTasks,
     backgroundTasks,
     COUNT_POLL_MS,
+        taskWidget.requestRender,
   );
 
   // ── Polling loop (background task completion, pane death, timeout) ──────
@@ -474,29 +476,37 @@ export default function (pi: ExtensionAPI) {
       const useSdkBackend =
         forceSdkBackend || (!forceTmuxBackend && !tmuxAvailable);
 
-      const toolSelection = buildAgentToolSelection({
-        tools: agent.tools,
-        disallowedTools: agent.disallowedTools,
-        parentToolNames,
-      });
-      const runSdkFallback = async () =>
-        runSdkSubagent({
-          prompt: promptContent,
-          agent,
-          cwd: ctx.cwd,
-          ctx,
-          model: agent.model,
-          thinkingLevel: agent.thinking,
-          tools: toolSelection.tools,
-          excludeTools: toolSelection.excludeTools,
-          systemPrompt: agent.body,
-        });
+          const toolSelection = buildAgentToolSelection({
+            tools: agent.tools,
+            disallowedTools: agent.disallowedTools,
+            parentToolNames,
+          });
+          const runSdkFallback = async (
+            foregroundTask?: BackgroundTask,
+            onSession?: (session: any) => () => void,
+          ) =>
+            runSdkSubagent({
+              onSession: foregroundTask
+                ? (session) => subscribeToolEvents(session, foregroundTask, 10, taskWidget.requestRender)
+                : onSession,
+              prompt: promptContent,
+              agent,
+              cwd: ctx.cwd,
+              ctx,
+              model: agent.model,
+              thinkingLevel: agent.thinking,
+              tools: toolSelection.tools,
+              excludeTools: toolSelection.excludeTools,
+              systemPrompt: agent.body,
+            });
+
       const foregroundTask: BackgroundTask | undefined = isBackground
         ? undefined
         : {
             dir: artifactsDir,
             agentType: agent.name,
             sessionName,
+            backend: "sdk",
             originalPane: null,
             description: descText,
             startedAt: Date.now(),
@@ -511,24 +521,46 @@ export default function (pi: ExtensionAPI) {
         ignoreStaleExtensionCtx(() => ensureTaskWidget(ctx));
       }
 
-      // Prefer tmux when the parent Pi is running inside tmux so users can watch
-      // the subagent's interactive Pi TUI. Fall back to the SDK only when tmux is
-      // unavailable, or when explicitly forced with PI_TASK_BACKEND=sdk.
-      if (useSdkBackend) {
-        if (isBackground) {
-          foregroundTasks.delete(id);
-          startSdkBackgroundTask({
-            id,
-            agentType: agent.name,
-            description: descText,
-            sessionName,
-            startedAt: Date.now(),
-            piDir,
-            artifactsDir,
-            conversationId,
-            run: runSdkFallback,
-          });
-          clearTaskWidgetIfIdle();
+          // Prefer tmux when the parent Pi is running inside tmux so users can watch
+          // the subagent's interactive Pi TUI. Fall back to the SDK only when tmux is
+          // unavailable, or when explicitly forced with PI_TASK_BACKEND=sdk.
+          if (useSdkBackend) {
+            if (isBackground) {
+
+              const backgroundTask: BackgroundTask = {
+                dir: artifactsDir,
+                agentType: agent.name,
+                sessionName,
+                backend: "sdk",
+                originalPane: null,
+                description: descText,
+                startedAt: Date.now(),
+                toolUses: 0,
+                turns: 0,
+                conversationId,
+                recentCalls: [],
+              };
+              backgroundTasks.set(id, backgroundTask);
+              ignoreStaleExtensionCtx(() => ensureTaskWidget(ctx));
+              const bgOnSession = (session: any) =>
+                subscribeToolEvents(session, backgroundTask, 10, taskWidget.requestRender);
+
+              startSdkBackgroundTask({
+                id,
+                agentType: agent.name,
+                description: descText,
+                sessionName,
+                startedAt: backgroundTask.startedAt,
+                piDir,
+                artifactsDir,
+                conversationId,
+                run: async () => runSdkFallback(undefined, bgOnSession),
+                onSettled: () => {
+                  backgroundTasks.delete(id);
+                  ignoreStaleExtensionCtx(() => clearTaskWidgetIfIdle());
+                },
+              });
+
           return {
             content: [{ type: "text" as const, text: formatSdkBackgroundReceipt(id) }],
             details: {
@@ -543,18 +575,29 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
-        try {
-          const { output, sessionPath } = await runSdkFallback();
+            try {
+              const { output, sessionPath } = await runSdkFallback(foregroundTask);
+
           const finalOutput = output || "SDK subagent completed without assistant text.";
-          return {
-            content: [{ type: "text" as const, text: finalOutput }],
-            details: {
-              phase: "done" as const,
-              backend: "sdk" as const,
-              session_path: sessionPath,
-              conversation_id: conversationId,
-            },
-          };
+              const parsed = parseResultXml(finalOutput);
+              const envelope = buildTaskEnvelope(parsed, {
+                agent_type: agent.name,
+                description: descText,
+                tool_uses: foregroundTask!.toolUses,
+                duration_ms: Date.now() - foregroundTask!.startedAt,
+                background: false,
+              });
+              return {
+                content: envelope.content,
+                details: {
+                  ...envelope.details,
+                  phase: "done" as const,
+                  backend: "sdk" as const,
+                  session_path: sessionPath,
+                  conversation_id: conversationId,
+                  full_output: parsed.raw.trim() || finalOutput,
+                },
+              };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return {
@@ -589,7 +632,8 @@ export default function (pi: ExtensionAPI) {
         originalPane = splitResult.originalPane;
         setPaneRemainOnExit(paneId, Boolean(foregroundTask));
         if (foregroundTask) {
-          foregroundTask.paneId = paneId;
+          foregroundTask.backend = "tmux";
+              foregroundTask.paneId = paneId;
           foregroundTask.originalPane = originalPane;
         } else {
           setPaneSelfDestruct(paneId, true);

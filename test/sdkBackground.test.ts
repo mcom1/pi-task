@@ -24,6 +24,7 @@ async function eventually(assertion: () => void): Promise<void> {
     const artifactsDir = join(piDir, "artifacts");
     mkdirSync(artifactsDir, { recursive: true });
     const sessionPath = join(root, "sub-session.jsonl");
+    let settled = false;
 
     startSdkBackgroundTask({
       id: "m123abc-def0",
@@ -36,6 +37,9 @@ async function eventually(assertion: () => void): Promise<void> {
       conversationId: "research",
       now: () => 200,
       run: async () => ({ output: "done", sessionPath }),
+      onSettled: () => {
+        settled = true;
+      },
     });
 
     await eventually(() => {
@@ -46,6 +50,7 @@ async function eventually(assertion: () => void): Promise<void> {
       assert.equal(history[0].background, true);
       assert.equal(history[0].sessionRef, sessionPath);
       assert.equal(history[0].completedAt, 200);
+      assert.equal(settled, true);
     });
   } finally {
     rmSync(root, { recursive: true, force: true });

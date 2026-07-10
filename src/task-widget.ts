@@ -98,7 +98,7 @@ function renderForegroundTask(
 
       " " +
       toolStatusMark(theme, latest.status, spinner) +
-      " " +
+      (latest.status === "in_progress" ? " " : "  ") +
       color(theme, "text", latest.name) +
       color(theme, "dim", detail + suffix);
     lines.push(truncateToWidth(line, maxWidth));

@@ -914,3 +914,52 @@ export function formatToolCallsSummaryBlock(
   }
   return lines.join("\n");
 }
+
+/**
+ * Payload from a tool execution event emitted by AgentSession.
+ */
+export interface ToolExecutionEventPayload {
+  id: string;
+  name: string;
+  detail: string;
+  status?: "in_progress" | "done" | "error";
+}
+
+/**
+ * Subscribe to tool execution events from an AgentSession and update
+ * a BackgroundTask's toolUses and recentCalls in real time.
+ *
+ * Returns an unsubscribe function. Call it to clean up the subscription
+ * (e.g., when the session prompt completes or the task is cancelled).
+ */
+export function subscribeToolEvents(
+  session: { subscribe(cb: (event: Record<string, unknown>) => void): () => void },
+  task: { toolUses: number; recentCalls: ToolCallRecord[] },
+  maxCalls = 10,
+  onUpdate?: () => void,
+): () => void {
+  const pending = new Map<string, ToolCallRecord>();
+
+  return session.subscribe((event) => {
+    if (event.type === "tool_execution_start") {
+      const record: ToolCallRecord = {
+        id: event.toolCallId as string,
+        name: event.toolName as string,
+        status: "in_progress",
+        detail: JSON.stringify(event.args),
+      };
+      pending.set(record.id, record);
+      task.toolUses++;
+      task.recentCalls.push(record);
+      if (task.recentCalls.length > maxCalls) task.recentCalls.splice(0, task.recentCalls.length - maxCalls);
+      onUpdate?.();
+    } else if (event.type === "tool_execution_end") {
+      const existing = pending.get(event.toolCallId as string);
+      if (existing) {
+        existing.status = event.isError === true ? "error" : "done";
+        pending.delete(existing.id);
+        onUpdate?.();
+      }
+    }
+  });
+}
