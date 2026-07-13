@@ -17,5 +17,5 @@
 - Durable resume must deliver the new prompt after reattaching to an already-running task; reattachment alone is not a completed resume operation. HerdR needed a 300 ms gap between `pane run` and a confirming Enter so Pi queues the prompt during an active turn.
 - Long wrapper commands must start through `herdr agent start -- sh -lc ...`; sending them into a fresh shell with `pane run` allowed immediate steering to corrupt the still-buffered command.
 - HerdR mutation commands can succeed with empty stdout. Only JSON-producing inspection commands should be decoded.
-- Parentless cleanup watches the task session directory, follows the newest JSONL, and closes only when the latest user/terminal state is stably terminal.
+- An autonomous child-side JSONL watcher was removed after live testing showed it could close the HerdR pane before the parent task runner consumed completion, leaving an orphaned in-memory widget entry. Normal cleanup is parent-owned: the wrapper records child exit, while pi-task polling records completion and then closes the pane. Restart restoration handles parent termination.
 - The existing code treats all five terminal stop reasons (`stop`, `endTurn`, `length`, `error`, `aborted`) as completed. This integration preserves that behavior.

@@ -17,6 +17,15 @@ interface HerdrResponse<T> {
   result?: T;
 }
 
+interface HerdrLayout {
+  layout?: {
+    panes?: Array<{
+      pane_id?: string;
+      rect?: { width?: number; height?: number };
+    }>;
+  };
+}
+
 function decode<T>(stdout: string, operation: string): T {
   try {
     const parsed = JSON.parse(stdout) as T | HerdrResponse<T>;
@@ -62,6 +71,25 @@ export function createHerdrTerminalBackend(
     env: { ...env, HERDR_SOCKET_PATH: socketPath },
   });
 
+  const chooseSplitDirection = async (
+    requested: TerminalLaunchInput["direction"],
+  ): Promise<"right" | "down"> => {
+    if (requested) return requested;
+    try {
+      const response = await run(["pane", "layout", "--pane", env.HERDR_PANE_ID as string]);
+      const layout = decode<HerdrLayout>(response.stdout, "pane layout");
+      const caller = layout.layout?.panes?.find((pane) => pane.pane_id === env.HERDR_PANE_ID);
+      const width = caller?.rect?.width;
+      const height = caller?.rect?.height;
+      if (typeof width === "number" && typeof height === "number" && height > 0) {
+        return width / height >= 2.5 ? "right" : "down";
+      }
+    } catch {
+      // Layout inspection is advisory; launch remains available on older HerdR versions.
+    }
+    return "right";
+  };
+
   const verifyOwnership = async (rawHandle: Parameters<TerminalBackend["isAlive"]>[0]): Promise<HerdrTerminalHandle> => {
     const handle = requireHerdrHandle(rawHandle);
     if (!socketPath || handle.socketPath !== socketPath) {
@@ -93,10 +121,11 @@ export function createHerdrTerminalBackend(
       if (env.HERDR_ENV !== "1" || !env.HERDR_PANE_ID || !socketPath || !isAbsolute(socketPath)) {
         throw new Error("HerdR backend requires Pi to run inside an active HerdR pane");
       }
+      const direction = await chooseSplitDirection(input.direction);
       const response = await run([
         "agent", "start", input.label ?? "pi-task",
         "--cwd", input.cwd,
-        "--split", input.direction ?? "right",
+        "--split", direction,
         "--no-focus",
         "--", "sh", "-lc", input.command,
       ]);
@@ -124,7 +153,7 @@ export function createHerdrTerminalBackend(
 
     async send(handle, message) {
       const owned = await verifyOwnership(handle);
-      await run(["pane", "run", owned.resourceId, message]);
+      await run(["pane", "send-text", owned.resourceId, message]);
       await new Promise((resolve) => setTimeout(resolve, 300));
       await run(["pane", "send-keys", owned.resourceId, "enter"]);
     },
@@ -182,7 +211,7 @@ export function createSyncHerdrControl(
     },
     send(handle: HerdrTerminalHandle, message: string): void {
       if (!this.exists(handle)) throw new Error("HerdR ownership mismatch");
-      run(["pane", "run", handle.resourceId, message], handle.socketPath);
+      run(["pane", "send-text", handle.resourceId, message], handle.socketPath);
       sleepSync(300);
       run(["pane", "send-keys", handle.resourceId, "enter"], handle.socketPath);
     },

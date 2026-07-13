@@ -11,6 +11,15 @@ import { killAgentPane } from "../subagent/tmux.js";
 import { ignoreStaleExtensionCtx } from "../stale-ctx.js";
 import type { BackgroundTask } from "../types.js";
 
+function closeTaskResource(task: BackgroundTask): void {
+  if (task.handle?.backend === "herdr") {
+    const herdr = createSyncHerdrControl();
+    if (herdr.exists(task.handle)) herdr.close(task.handle);
+  } else if (task.paneId) {
+    killAgentPane(task.paneId, task.originalPane);
+  }
+}
+
 export function completeTask(
   pi: ExtensionAPI,
   id: string,
@@ -18,14 +27,8 @@ export function completeTask(
   content: string,
   phase: "done" | "timeout" | "failed",
   piDir: string,
+  resourceCloser: (task: BackgroundTask) => void = closeTaskResource,
 ): void {
-  if (task.handle?.backend === "herdr") {
-    const herdr = createSyncHerdrControl();
-    if (herdr.exists(task.handle)) herdr.close(task.handle);
-  } else if (task.paneId) {
-    killAgentPane(task.paneId, task.originalPane);
-  }
-
   const parsed = parseResultXml(content);
   const durationMs = Date.now() - task.startedAt;
   const completedSessionRef = findJsonlSessionByName(
@@ -50,6 +53,15 @@ export function completeTask(
     completedAt: Date.now(),
     background: true,
   });
+
+  const entries = readRegistry(piDir).filter((entry) => entry.id !== id);
+  writeRegistry(piDir, entries);
+
+  try {
+    resourceCloser(task);
+  } catch {
+    // Completion is already durable. Cleanup is best-effort and restore can retry it.
+  }
 
   const summaryText = parsed.summary?.trim()
     ? parsed.summary.trim()
@@ -95,7 +107,4 @@ export function completeTask(
       },
     ),
   );
-
-  const entries = readRegistry(piDir).filter((entry) => entry.id !== id);
-  writeRegistry(piDir, entries);
 }
