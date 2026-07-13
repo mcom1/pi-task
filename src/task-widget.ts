@@ -14,7 +14,7 @@ export interface ThemeLike {
   fg(color: string, text: string): string;
 }
 
-export const TASK_WIDGET_RENDER_MS = 80;
+const TASK_WIDGET_RENDER_MS = 80;
 
 const SPINNER_FRAMES = [
   "\u280B",

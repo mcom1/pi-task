@@ -1,6 +1,6 @@
 /** Minimal shared tool-policy helpers for task agent frontmatter. */
 
-export const XAI_SIDE_TOOL_NAMES = [
+const XAI_SIDE_TOOL_NAMES = [
   "xai_generate_text",
   "xai_multi_agent",
   "xai_web_search",

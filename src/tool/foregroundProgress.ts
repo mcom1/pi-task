@@ -15,7 +15,7 @@ export type ForegroundProgressPollOptions = {
   }) => void;
 };
 
-export function flushOnUpdate(
+function flushOnUpdate(
   onUpdate: ForegroundProgressPollOptions["onUpdate"],
   progress: {
     taskId: string;

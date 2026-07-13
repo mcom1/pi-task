@@ -38,11 +38,11 @@ export function normalizeConversationId(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-export function getArtifactDir(piDir: string): string {
+function getArtifactDir(piDir: string): string {
   return join(piDir, ARTIFACTS_DIR);
 }
 
-export function getTaskSessionsRegistryPath(piDir: string): string {
+function getTaskSessionsRegistryPath(piDir: string): string {
   return join(getArtifactDir(piDir), TASK_SESSIONS_REGISTRY);
 }
 
@@ -76,7 +76,7 @@ export function writeTaskSessionsRegistry(
   writeJsonFile(getTaskSessionsRegistryPath(piDir), registry);
 }
 
-export function getRegistryPath(piDir: string): string {
+function getRegistryPath(piDir: string): string {
   return join(piDir, TASK_REGISTRY);
 }
 
@@ -112,7 +112,7 @@ export function writeRegistry(piDir: string, entries: RegistryEntry[]): void {
   writeJsonFile(getRegistryPath(piDir), entries.map((entry) => migrateRegistryEntry(entry)));
 }
 
-export function getTaskSessionHistoryPath(piDir: string): string {
+function getTaskSessionHistoryPath(piDir: string): string {
   return join(piDir, TASK_SESSION_HISTORY);
 }
 
@@ -121,7 +121,7 @@ export function readTaskSessionHistory(piDir: string): TaskSessionHistoryEntry[]
   return Array.isArray(parsed) ? (parsed as TaskSessionHistoryEntry[]) : [];
 }
 
-export function writeTaskSessionHistory(
+function writeTaskSessionHistory(
   piDir: string,
   entries: TaskSessionHistoryEntry[],
 ): void {

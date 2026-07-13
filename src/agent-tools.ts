@@ -6,7 +6,7 @@
 import { parseMergedDisallowedTools } from "./policy.js";
 
 /** Pi built-in tools exposed to task subagents when present in the parent session. */
-export const BUILTIN_TOOL_NAMES = [
+const BUILTIN_TOOL_NAMES = [
   "read",
   "bash",
   "edit",
@@ -20,7 +20,7 @@ export const BUILTIN_TOOL_NAMES = [
  * Extension tools commonly granted to research / read-only subagents when
  * `tools:` is omitted. Parent may pass a wider list via parentToolNames.
  */
-export const TASK_DEFAULT_EXTENSION_TOOLS = [
+const TASK_DEFAULT_EXTENSION_TOOLS = [
   "websearch",
   "codesearch",
   "web_fetch",

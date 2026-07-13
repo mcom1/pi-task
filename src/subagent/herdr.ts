@@ -17,6 +17,22 @@ interface HerdrResponse<T> {
   result?: T;
 }
 
+let launchQueue: Promise<void> = Promise.resolve();
+
+async function serializeLaunch<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = launchQueue;
+  let release!: () => void;
+  launchQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
 interface HerdrLayout {
   layout?: {
     panes?: Array<{
@@ -45,6 +61,18 @@ function paneFrom(value: unknown): HerdrPane {
     throw new Error("HerdR response did not include pane_id and terminal_id");
   }
   return pane as HerdrPane;
+}
+
+function splitDirectionFromLayout(
+  layout: HerdrLayout,
+  paneId: string,
+): "right" | "down" | undefined {
+  const rect = layout.layout?.panes?.find((pane) => pane.pane_id === paneId)?.rect;
+  const dimensions = [rect?.width, rect?.height];
+  if (!dimensions.every((value) => typeof value === "number" && Number.isFinite(value))) return undefined;
+  const [width, height] = dimensions as [number, number];
+  if (height <= 0) return undefined;
+  return width / height >= 2.5 ? "right" : "down";
 }
 
 function sleepSync(milliseconds: number): void {
@@ -78,12 +106,7 @@ export function createHerdrTerminalBackend(
     try {
       const response = await run(["pane", "layout", "--pane", env.HERDR_PANE_ID as string]);
       const layout = decode<HerdrLayout>(response.stdout, "pane layout");
-      const caller = layout.layout?.panes?.find((pane) => pane.pane_id === env.HERDR_PANE_ID);
-      const width = caller?.rect?.width;
-      const height = caller?.rect?.height;
-      if (typeof width === "number" && typeof height === "number" && height > 0) {
-        return width / height >= 2.5 ? "right" : "down";
-      }
+      return splitDirectionFromLayout(layout, env.HERDR_PANE_ID as string) ?? "right";
     } catch {
       // Layout inspection is advisory; launch remains available on older HerdR versions.
     }
@@ -118,24 +141,26 @@ export function createHerdrTerminalBackend(
     },
 
     async launch(input: TerminalLaunchInput) {
-      if (env.HERDR_ENV !== "1" || !env.HERDR_PANE_ID || !socketPath || !isAbsolute(socketPath)) {
-        throw new Error("HerdR backend requires Pi to run inside an active HerdR pane");
-      }
-      const direction = await chooseSplitDirection(input.direction);
-      const response = await run([
-        "agent", "start", input.label ?? "pi-task",
-        "--cwd", input.cwd,
-        "--split", direction,
-        "--no-focus",
-        "--", "sh", "-lc", input.command,
-      ]);
-      const created = paneFrom(decode(response.stdout, "agent start"));
-      return {
-        backend: "herdr",
-        resourceId: created.pane_id,
-        socketPath,
-        terminalId: created.terminal_id,
-      };
+      return serializeLaunch(async () => {
+        if (env.HERDR_ENV !== "1" || !env.HERDR_PANE_ID || !socketPath || !isAbsolute(socketPath)) {
+          throw new Error("HerdR backend requires Pi to run inside an active HerdR pane");
+        }
+        const direction = await chooseSplitDirection(input.direction);
+        const response = await run([
+          "agent", "start", input.label ?? "pi-task",
+          "--cwd", input.cwd,
+          "--split", direction,
+          "--no-focus",
+          "--", "sh", "-lc", input.command,
+        ]);
+        const created = paneFrom(decode(response.stdout, "agent start"));
+        return {
+          backend: "herdr" as const,
+          resourceId: created.pane_id,
+          socketPath,
+          terminalId: created.terminal_id,
+        };
+      });
     },
 
     async isAlive(handle) {

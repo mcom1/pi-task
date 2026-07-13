@@ -13,7 +13,7 @@ import { strict as assert } from "node:assert";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { waitForTaskCompletion } from "../src/subagent/waitCompletion.js";
+import { waitForTaskCompletion, checkTaskCompletion } from "../src/subagent/waitCompletion.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -159,6 +159,97 @@ for (const reason of ["stop", "endTurn", "length", "error", "aborted"]) {
       pollMs: 50,
     });
     assert.equal(result.status, "completed", t);
+  } finally {
+    cleanup(dir);
+  }
+}
+
+{
+  const t = "newest JSONL file is preferred over older ones";
+  const dir = mkdtempSync(join(tmpdir(), "pi-task-wait-"));
+  try {
+    const sessionDir = join(dir, "sessions", "test-task");
+    mkdirSync(sessionDir, { recursive: true });
+
+    // Write an older JSONL file with non-terminal content
+    const oldFile = join(sessionDir, "task-test.jsonl");
+    writeFileSync(oldFile, JSON.stringify({
+      type: "session_info",
+      data: { name: "task-test" },
+      id: "019f0000-0000-7000-8000-000000000001",
+      name: "task-test",
+    }) + "\n");
+
+    // Write a newer JSONL file with terminal content
+    const newFile = join(sessionDir, "task-test.2.jsonl");
+    writeFileSync(newFile, JSON.stringify({
+      type: "session_info",
+      data: { name: "task-test" },
+      id: "019f0000-0000-7000-8000-000000000002",
+      name: "task-test",
+    }) + "\n" + JSON.stringify({
+      type: "message",
+      message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "newest file result" }] },
+      timestamp: new Date().toISOString(),
+    }) + "\n");
+
+    const result = await waitForTaskCompletion({
+      sessionDir,
+      sessionName: "task-test",
+      timeoutMs: 5000,
+      pollMs: 50,
+    });
+    assert.equal(result.status, "completed", t);
+    assert.match(result.content, /newest file result/, t);
+  } finally {
+    cleanup(dir);
+  }
+}
+
+{
+  // checkTaskCompletion returns "failed" when no pane and no session text
+  const dir = mkdtempSync(join(tmpdir(), "pi-task-wait-"));
+  try {
+    const sessionDir = join(dir, "sessions", "test-task");
+    mkdirSync(sessionDir, { recursive: true });
+    const result = await checkTaskCompletion({
+      sessionDir,
+      sessionName: "task-test",
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.source, "pane");
+  } finally {
+    cleanup(dir);
+  }
+}
+
+{
+  // checkTaskCompletion returns completed when session has terminal stop reason
+  const dir = mkdtempSync(join(tmpdir(), "pi-task-wait-"));
+  try {
+    const sessionDir = join(dir, "sessions", "test-task");
+    mkdirSync(sessionDir, { recursive: true });
+    const jsonlPath = join(sessionDir, "task-test.jsonl");
+    writeFileSync(jsonlPath, JSON.stringify({
+      type: "session_info",
+      data: { name: "task-test", cwd: dir },
+      id: "019f0000-0000-7000-8000-000000000099",
+      name: "task-test",
+    }) + "\n" + JSON.stringify({
+      type: "message",
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "text", text: "task completed direct" }],
+      },
+      timestamp: new Date().toISOString(),
+    }) + "\n");
+    const result = await checkTaskCompletion({
+      sessionDir,
+      sessionName: "task-test",
+    });
+    assert.equal(result.status, "completed");
+    assert.match(result.content, /task completed direct/);
   } finally {
     cleanup(dir);
   }

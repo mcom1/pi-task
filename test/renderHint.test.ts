@@ -26,14 +26,4 @@ import { fileURLToPath } from "node:url";
   assert.ok(src.includes("renderTaskTitleText"), t);
 }
 
-{
-  const t = "readProgress uses sessionDir not piDir";
-  const helpers = readFileSync(
-    fileURLToPath(new URL("../src/helpers.ts", import.meta.url)),
-    "utf8",
-  );
-  assert.ok(helpers.includes("readProgress(\n  sessionDir"), t);
-  assert.ok(!helpers.includes("readProgress(piDir"), t);
-}
-
 console.log("renderHint.test.ts: all passed");

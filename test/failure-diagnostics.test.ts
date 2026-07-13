@@ -1,29 +1,31 @@
-import { describe, expect, it } from "vitest";
-import { join } from "node:path";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   enrichSubagentFailureMessage,
   sessionDirForTask,
 } from "../src/subagent/failure-diagnostics.js";
 
-describe("failure-diagnostics", () => {
-  it("sessionDirForTask", () => {
-    expect(sessionDirForTask("/artifacts", "abc-1")).toBe(
-      join("/artifacts", "sessions", "abc-1"),
+describe("failure diagnostics", () => {
+  it("builds task-scoped session paths", () => {
+    assert.equal(
+      sessionDirForTask("/tmp/artifacts", "task-123"),
+      "/tmp/artifacts/sessions/task-123",
     );
   });
 
-  it("enrichSubagentFailureMessage includes session dir and hint when no jsonl", () => {
-    const text = enrichSubagentFailureMessage({
+  it("includes session location and recovery hint when no JSONL exists", () => {
+    const result = enrichSubagentFailureMessage({
       kind: "pane_exit",
       baseMessage: "Subagent pane exited without producing a result.",
       artifactsDir: "/tmp/artifacts",
       taskId: "task-99",
       elapsedMs: 12_000,
     });
-    expect(text).toContain("Subagent pane exited");
-    expect(text).toContain("Session dir:");
-    expect(text).toContain("sessions/task-99");
-    expect(text).toContain("Session JSONL: missing");
-    expect(text).toContain("PI_TASK_CHILD_NO_EXTENSIONS");
+
+    assert.match(result, /Subagent pane exited/);
+    assert.match(result, /Session dir:/);
+    assert.match(result, /sessions\/task-99/);
+    assert.match(result, /Session JSONL: missing/);
+    assert.match(result, /PI_TASK_CHILD_NO_EXTENSIONS/);
   });
 });

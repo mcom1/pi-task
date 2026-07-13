@@ -8,7 +8,7 @@ export interface BuildTaskPromptOptions {
   cwd: string;
 }
 
-export const TASK_WORKSPACE_SCOPE = `## Workspace scope
+const TASK_WORKSPACE_SCOPE = `## Workspace scope
 
 The **Working Directory** below is the parent Pi session cwd. Treat it as the default repository root for this task.
 

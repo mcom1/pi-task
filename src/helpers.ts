@@ -11,10 +11,9 @@ import { parseToolList } from "./agent-tools.js";
 import { parseMergedDisallowedTools } from "./policy.js";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { buildPiArgv } from "./subagent/buildArgv.js";
-import { FOREGROUND_PROGRESS_MAX_TOOL_LINES } from "./constants.js";
 
 
-export function parseMarkdownFrontmatter(content: string): {
+function parseMarkdownFrontmatter(content: string): {
   frontmatter: Record<string, string>;
   body: string;
 } {
@@ -90,8 +89,6 @@ export const TASK_PROMPT_INSTRUCTIONS = `Your final assistant message IS the res
 
 When you are done, end with the XML envelope described below (or the <result> block from your agent instructions). Do not write a RESULT.md file — the parent reads your final assistant message from the session JSONL, not from any file.`;
 
-export const OUTPUT_FORMAT_GUIDE = TASK_PROMPT_INSTRUCTIONS;
-
 /**
  * XML envelope for the task result. The parent agent parses the child
  * subagent's final message with `parseResultXml`, which reads `<status>`,
@@ -155,7 +152,7 @@ Background mode (background: true):
 - Work on non-overlapping tasks, or briefly tell the user what you launched and end your response`;
 
 /** @deprecated Import from ./agent-tools.js */
-export { ALL_TOOL_NAMES, BUILTIN_TOOL_NAMES } from "./agent-tools.js";
+export { ALL_TOOL_NAMES } from "./agent-tools.js";
 
 // Cached regex patterns for XML result parsing
 const STATUS_RE = /<status>([\s\S]*?)<\/status>/i;
@@ -349,26 +346,6 @@ export function buildTmuxSplitWindowArgs(
   return args;
 }
 
-export type TaskEnvelopeState = "running" | "completed" | "error";
-
-/** Machine-readable task handoff envelope for parent parsing. */
-export function formatTaskEnvelope(input: {
-  taskId: string;
-  state: TaskEnvelopeState;
-  summary?: string;
-  text: string;
-}): string {
-  const tag = input.state === "error" ? "task_error" : "task_result";
-  return [
-    `<task id="${input.taskId}" state="${input.state}">`,
-    ...(input.summary ? [`<summary>${input.summary}</summary>`] : []),
-    `<${tag}>`,
-    input.text,
-    `</${tag}>`,
-    "</task>",
-  ].join("\n");
-}
-
 export interface BackgroundReceiptInput {
   taskId: string;
   agentType: string;
@@ -403,7 +380,7 @@ export function findPiDir(cwd: string): string | null {
   }
 }
 
-export function getGlobalAgentDir(): string {
+function getGlobalAgentDir(): string {
   const home = process.env.HOME || process.env.USERPROFILE || "";
   return join(home, ".pi", "agent", "agents");
 }
@@ -501,7 +478,7 @@ export function discoverAgents(
 }
 
 /** Mutating tools denied when `readonly: true`. Bash is not denied — use explicit `tools:` or `disallowed_tools` to block shell. */
-export const READONLY_TOOL_DENY = [
+const READONLY_TOOL_DENY = [
   "write",
   "edit",
   "apply_patch",
@@ -515,15 +492,15 @@ export function parseBool(value: unknown): boolean | undefined {
   return undefined;
 }
 
-export function isAgentHidden(agent: AgentConfig): boolean {
+function isAgentHidden(agent: AgentConfig): boolean {
   return agent.hidden === true;
 }
 
-export function isAgentProactive(agent: AgentConfig): boolean {
+function isAgentProactive(agent: AgentConfig): boolean {
   return agent.proactive === true;
 }
 
-export function getTaskAgents(agents: AgentConfig[]): AgentConfig[] {
+function getTaskAgents(agents: AgentConfig[]): AgentConfig[] {
   return agents.filter((a) => !isAgentHidden(a));
 }
 
@@ -855,37 +832,12 @@ export function summarizeArgs(toolName: string, args: unknown): string {
   return { toolUses, turns, recent };
 }
 
-export function renderTaskStatusSummary(input: {
-  agentType: string;
-  description: string;
-  toolUses: number;
-  elapsedMs: number;
-}): string {
-  const elapsed = formatElapsed(input.elapsedMs);
-  const tools =
-    input.toolUses === 1 ? "1 toolcall" : `${input.toolUses} toolcalls`;
-  return `${input.agentType} • ${tools} • ${elapsed}`;
-}
-
 export function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   const r = s % 60;
   return r > 0 ? `${m}m ${r}s` : `${m}m`;
-}
-
-/** Tool lines for foreground onUpdate; use the same sessionDir as countToolUses. */
-export function readProgress(
-  sessionDir: string,
-  sessionName?: string,
-): string[] {
-  const { recent } = readRecentToolCalls(
-    sessionDir,
-    FOREGROUND_PROGRESS_MAX_TOOL_LINES,
-    sessionName,
-  );
-  return recent.map((c) => `  ${c.name}${c.detail ? ` ${c.detail}` : ""}`);
 }
 
 export function formatForegroundProgressText(
@@ -916,16 +868,6 @@ export function formatToolCallsSummaryBlock(
     lines.unshift(`  … +${hidden} earlier`);
   }
   return lines.join("\n");
-}
-
-/**
- * Payload from a tool execution event emitted by AgentSession.
- */
-export interface ToolExecutionEventPayload {
-  id: string;
-  name: string;
-  detail: string;
-  status?: "in_progress" | "done" | "error";
 }
 
 /**

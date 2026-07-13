@@ -52,23 +52,3 @@ export interface TaskSessionHistoryEntry extends RegistryEntry {
   completedAt?: number;
   background: boolean;
 }
-
-/** Details attached to tool result for rendering. */
-export interface TaskDetails {
-  task_id: string;
-  agent_type: string;
-  description: string;
-  conversation_id?: string;
-  phase: "running" | "done" | "timeout" | "aborted" | "failed";
-  status?: string;
-  summary?: string;
-  findings?: string;
-  evidence?: string;
-  confidence?: string;
-  duration_ms?: number;
-  turn_count?: number;
-  tool_uses?: number;
-  background?: boolean;
-  backend?: ExecutionBackend;
-  tmux_session?: string;
-}

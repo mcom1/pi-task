@@ -36,6 +36,44 @@ test("HerdR launch returns a socket-scoped terminal handle", async () => {
   assert.equal(calls.length, 2);
 });
 
+test("parallel HerdR launches serialize layout inspection and agent creation", async () => {
+  let activeStarts = 0;
+  let maxActiveStarts = 0;
+  let nextId = 1;
+  const run = async (_command: string, args: readonly string[]) => {
+    if (args[0] === "pane") {
+      return {
+        stdout: JSON.stringify({ layout: { panes: [{ pane_id: "w1:p1", rect: { width: 160, height: 40 } }] } }),
+        stderr: "",
+      };
+    }
+    activeStarts += 1;
+    maxActiveStarts = Math.max(maxActiveStarts, activeStarts);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const id = nextId++;
+    activeStarts -= 1;
+    return {
+      stdout: JSON.stringify({ agent: { pane_id: `w1:p${id + 1}`, terminal_id: `term-${id}` } }),
+      stderr: "",
+    };
+  };
+  const env = {
+    HERDR_ENV: "1",
+    HERDR_PANE_ID: "w1:p1",
+    HERDR_SOCKET_PATH: "/tmp/herdr.sock",
+  };
+  const first = createHerdrTerminalBackend({ env, run });
+  const second = createHerdrTerminalBackend({ env, run });
+
+  const handles = await Promise.all([
+    first.launch({ command: "pi first", cwd: "/repo" }),
+    second.launch({ command: "pi second", cwd: "/repo" }),
+  ]);
+
+  assert.equal(maxActiveStarts, 1);
+  assert.equal(new Set(handles.map((handle) => handle.terminalId)).size, 2);
+});
+
 test("HerdR chooses a downward split for a narrow caller pane", async () => {
   const calls: string[][] = [];
   const outputs = [

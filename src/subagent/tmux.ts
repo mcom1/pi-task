@@ -6,7 +6,7 @@ export type TmuxSplitResult = {
   originalPane: string | null;
 };
 
-export function tmuxCmd(args: string[]): string {
+function tmuxCmd(args: string[]): string {
   return execFileSync("tmux", args, {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -36,11 +36,11 @@ export function hasTmux(): boolean {
   }
 }
 
-export function getCurrentPaneId(): string | null {
+function getCurrentPaneId(): string | null {
   return tmuxCmdQuiet(["display-message", "-p", "#{pane_id}"]) || null;
 }
 
-export function getCurrentPaneSize(
+function getCurrentPaneSize(
   targetPane?: string | null,
 ): { width: number; height: number } | null {
   const args = ["display-message", "-p", "#{pane_width} #{pane_height}"];
