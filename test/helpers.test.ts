@@ -1012,9 +1012,11 @@ import {
         taskId: "task-123",
         agentType: "explore",
         sessionPath: "/tmp/.pi/artifacts/sessions/2026-06-25T07-41-43-885Z_task-123.jsonl",
+        backend: "herdr",
       });
       assert.ok(receipt.includes("Started task task-123"), t + " includes task id");
       assert.ok(receipt.includes("explore"), t + " includes agent type");
+      assert.ok(receipt.includes("Backend: herdr"), t + " includes effective backend");
       assert.ok(
         !receipt.includes("Pi session name:"),
         t + " omits the tmux session name line",

@@ -373,11 +373,14 @@ export interface BackgroundReceiptInput {
   taskId: string;
   agentType: string;
   sessionPath: string;
+  backend?: "sdk" | "tmux" | "herdr";
+  backendReason?: string;
 }
 
 export function formatBackgroundReceipt(input: BackgroundReceiptInput): string {
   return [
     `⎿ Started task ${input.taskId} with ${input.agentType}.`,
+    ...(input.backend ? [`  Backend: ${input.backend}${input.backendReason ? ` (${input.backendReason})` : ""}`] : []),
     `  Subagent sessions: ${input.sessionPath}`,
   ].join("\n");
 }

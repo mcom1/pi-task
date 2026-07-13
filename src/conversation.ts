@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isTerminalHandle, type TerminalHandle } from "./subagent/terminalBackend.js";
 import type { RegistryEntry, TaskSessionHistoryEntry } from "./types.js";
 
 const ARTIFACTS_DIR = "artifacts";
@@ -79,13 +80,36 @@ export function getRegistryPath(piDir: string): string {
   return join(piDir, TASK_REGISTRY);
 }
 
+export function migrateRegistryEntry(entry: Record<string, unknown> | RegistryEntry): RegistryEntry {
+  const migrated: Record<string, unknown> = { ...(entry as unknown as Record<string, unknown>) };
+  const legacyPaneId = migrated.paneId;
+  const existingHandle = migrated.handle;
+
+  if (!isTerminalHandle(existingHandle)) {
+    if (typeof legacyPaneId === "string" && legacyPaneId.length > 0) {
+      migrated.handle = { backend: "tmux", resourceId: legacyPaneId } satisfies TerminalHandle;
+    } else {
+      delete migrated.handle;
+    }
+  }
+
+  if (isTerminalHandle(migrated.handle)) {
+    migrated.backend = migrated.handle.backend;
+  }
+  delete migrated.paneId;
+  return migrated as unknown as RegistryEntry;
+}
+
 export function readRegistry(piDir: string): RegistryEntry[] {
   const parsed = readJsonFile<unknown>(getRegistryPath(piDir), []);
-  return Array.isArray(parsed) ? (parsed as RegistryEntry[]) : [];
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+    .map((entry) => migrateRegistryEntry(entry));
 }
 
 export function writeRegistry(piDir: string, entries: RegistryEntry[]): void {
-  writeJsonFile(getRegistryPath(piDir), entries);
+  writeJsonFile(getRegistryPath(piDir), entries.map((entry) => migrateRegistryEntry(entry)));
 }
 
 export function getTaskSessionHistoryPath(piDir: string): string {

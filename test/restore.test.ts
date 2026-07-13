@@ -67,6 +67,39 @@ describe("restoreActiveBackgroundTasks", () => {
     assert.equal(history[0]?.status, "done");
   });
 
+  it("preserves durable records during a temporary backend outage", () => {
+    const piDir = makePiDir();
+    const taskDir = join(piDir, "artifacts", "sessions", "task-herdr");
+    writeSession(taskDir, "task-task-herdr");
+    const entry = {
+      id: "task-herdr",
+      dir: taskDir,
+      sessionName: "task-task-herdr",
+      startedAt: Date.now() - 1000,
+      paneId: "w1:p2",
+      handle: {
+        backend: "herdr",
+        resourceId: "w1:p2",
+        socketPath: "/tmp/herdr.sock",
+        terminalId: "term-2",
+      },
+      agentType: "scout",
+      description: "temporarily unreachable",
+      background: true,
+    };
+    writeJson(join(piDir, "task-registry.json"), [entry]);
+
+    const backgroundTasks = new Map();
+    restoreActiveBackgroundTasks(piDir, backgroundTasks, () => {
+      const error = new Error("connection refused");
+      error.name = "HerdrUnavailableError";
+      throw error;
+    });
+
+    assert.equal(backgroundTasks.size, 0);
+    assert.equal(readJson<Array<{ id: string }>>(join(piDir, "task-registry.json"))[0]?.id, "task-herdr");
+  });
+
   it("marks non-terminal entries failed when their pane is gone", () => {
     const piDir = makePiDir();
     const taskDir = join(piDir, "artifacts", "sessions", "task-2");

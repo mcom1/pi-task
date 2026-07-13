@@ -122,4 +122,46 @@ function cleanup(dir: string) {
   }
 }
 
+{
+  const t = "terminal JSONL result takes precedence over an exit sentinel";
+  const dir = makeSessionFileWithText("valid final result", "stop");
+  const sentinelPath = join(dir, "task.exit.json");
+  writeFileSync(sentinelPath, JSON.stringify({
+    schemaVersion: 1,
+    taskId: "task-test",
+    exitCode: 1,
+    completedAt: new Date().toISOString(),
+  }));
+  try {
+    const result = await waitForTaskCompletion({
+      sessionDir: join(dir, "sessions", "test-task"),
+      sessionName: "task-test",
+      taskId: "task-test",
+      exitSentinelPath: sentinelPath,
+      timeoutMs: 5000,
+      pollMs: 50,
+    });
+    assert.equal(result.status, "completed", t);
+    assert.match(result.content, /valid final result/, t);
+  } finally {
+    cleanup(dir);
+  }
+}
+
+for (const reason of ["stop", "endTurn", "length", "error", "aborted"]) {
+  const t = `terminal stop reason ${reason} remains completed`;
+  const dir = makeSessionFileWithText(`terminal ${reason}`, reason);
+  try {
+    const result = await waitForTaskCompletion({
+      sessionDir: join(dir, "sessions", "test-task"),
+      sessionName: "task-test",
+      timeoutMs: 5000,
+      pollMs: 50,
+    });
+    assert.equal(result.status, "completed", t);
+  } finally {
+    cleanup(dir);
+  }
+}
+
 console.log("ALL WAIT COMPLETION TESTS PASSED");

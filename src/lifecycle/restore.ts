@@ -5,12 +5,15 @@ import {
   writeRegistry,
 } from "../conversation.js";
 import { hasAgentFinished } from "../session-text.js";
+import { getExitSentinelPath } from "../subagent/exitSentinel.js";
 import { killAgentPane, paneExists } from "../subagent/tmux.js";
-import type { BackgroundTask } from "../types.js";
+import type { BackgroundTask, RegistryEntry } from "../types.js";
 
 export function restoreActiveBackgroundTasks(
   piDir: string,
   backgroundTasks: Map<string, BackgroundTask>,
+  resourceExists?: (entry: RegistryEntry) => boolean,
+  closeResource?: (entry: RegistryEntry) => void,
 ): void {
   const registry = readRegistry(piDir);
   const staleIds: string[] = [];
@@ -26,7 +29,18 @@ export function restoreActiveBackgroundTasks(
       entry.sessionName,
       entry.startedAt,
     );
-    const paneAlive = entry.paneId ? paneExists(entry.paneId) : false;
+    const paneId = entry.handle?.resourceId ?? entry.paneId;
+    let paneAlive: boolean;
+    try {
+      paneAlive = resourceExists
+        ? resourceExists(entry)
+        : entry.handle?.backend === "herdr"
+          ? false
+          : Boolean(paneId && paneExists(paneId));
+    } catch {
+      // A temporary backend outage must not destroy the durable task record.
+      continue;
+    }
 
     if (sessionFinished) {
       upsertTaskSessionHistory(piDir, {
@@ -42,8 +56,9 @@ export function restoreActiveBackgroundTasks(
         paneId: entry.paneId,
         completedAt: Date.now(),
       });
-      if (paneAlive && entry.paneId) {
-        killAgentPane(entry.paneId, null);
+      if (paneAlive && paneId) {
+        if (closeResource) closeResource(entry);
+        else if (entry.handle?.backend !== "herdr") killAgentPane(paneId, null);
       }
       staleIds.push(entry.id);
       continue;
@@ -71,8 +86,11 @@ export function restoreActiveBackgroundTasks(
       dir: entry.dir,
       agentType: entry.agentType,
       sessionName: entry.sessionName,
-      paneId: entry.paneId,
-      originalPane: null,
+        paneId,
+        handle: entry.handle,
+        exitSentinelPath: entry.handle?.backend === "herdr" ? getExitSentinelPath(piDir, entry.id) : undefined,
+        backend: entry.handle?.backend ?? "tmux",
+        originalPane: null,
       description: entry.description,
       startedAt: entry.startedAt,
       toolUses: 0,

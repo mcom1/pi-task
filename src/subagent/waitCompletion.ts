@@ -6,7 +6,8 @@ import {
   enrichSubagentFailureMessage,
   sessionJsonlExists,
 } from "./failure-diagnostics.js";
-import { paneDead, paneExists } from "./tmux.js";
+    import { readExitSentinel } from "./exitSentinel.js";
+    import { paneDead, paneExists } from "./tmux.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -20,7 +21,7 @@ export type TaskCompletionStatus =
 export interface TaskCompletionSnapshot {
   status: TaskCompletionStatus;
   content: string;
-  source?: "session-jsonl" | "pane" | "timeout" | "signal";
+      source?: "session-jsonl" | "pane" | "exit-sentinel" | "timeout" | "signal";
 }
 
 export interface WaitForTaskCompletionOptions {
@@ -33,6 +34,8 @@ export interface WaitForTaskCompletionOptions {
   timeoutMs?: number;
   pollMs?: number;
   sinceMs?: number;
+  resourceExists?: () => boolean | Promise<boolean>;
+  exitSentinelPath?: string;
 }
 
 /**
@@ -79,7 +82,11 @@ function reportPaneExitFailure(
 export async function checkTaskCompletion(
   options: Omit<WaitForTaskCompletionOptions, "signal" | "timeoutMs" | "pollMs">,
 ): Promise<TaskCompletionSnapshot> {
-  const paneAlive = options.paneId ? paneExists(options.paneId) : false;
+  const paneAlive = options.resourceExists
+    ? await options.resourceExists()
+    : options.paneId
+      ? paneExists(options.paneId)
+      : false;
 
   if (options.paneId && !paneAlive) {
     await sleep(POST_PANE_EXIT_FLUSH_MS);
@@ -103,7 +110,31 @@ export async function checkTaskCompletion(
     return { status: "completed", content: sessionResult, source: "session-jsonl" };
   }
 
-  if (options.paneId && paneExists(options.paneId)) {
+  if (options.exitSentinelPath && options.taskId) {
+    const sentinel = readExitSentinel(options.exitSentinelPath, options.taskId);
+    if (sentinel) {
+      await sleep(250);
+      const finalSessionResult = readSessionText(
+        options.sessionDir,
+        options.sessionName,
+        options.sinceMs,
+      );
+      if (finalSessionResult) {
+        return { status: "completed", content: finalSessionResult, source: "session-jsonl" };
+      }
+      const message = sentinel.exitCode === 0
+        ? "Agent process exited without writing a final session result."
+        : `Agent process exited with code ${sentinel.exitCode} before writing a final session result.`;
+      return { status: "failed", content: message, source: "exit-sentinel" };
+    }
+  }
+
+  const stillAlive = options.resourceExists
+    ? await options.resourceExists()
+    : options.paneId
+      ? paneExists(options.paneId)
+      : false;
+  if (options.paneId && stillAlive) {
     return { status: "running", content: "", source: "pane" };
   }
 

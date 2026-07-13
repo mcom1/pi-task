@@ -61,6 +61,10 @@ import {
 } from "./lifecycle/index.js";
 import { formatSdkBackgroundReceipt, startSdkBackgroundTask } from "./subagent/sdkBackground.js";
 import { runSdkSubagent } from "./subagent/runSdk.js";
+import { createDefaultHerdrTerminalBackend, createSyncHerdrControl } from "./subagent/herdr.js";
+import { ensureExitSentinelDirectory, getExitSentinelPath, wrapWithHerdrExitSentinel } from "./subagent/exitSentinel.js";
+import { selectTerminalBackend } from "./subagent/terminalBackend.js";
+import { steerRunningBackgroundTask } from "./subagent/steer.js";
 import {
   checkTaskCompletion,
   waitForTaskCompletion as waitForSessionTaskCompletion,
@@ -85,6 +89,7 @@ import {
 import type {
   BackgroundTask,
   RegistryEntry,
+  TerminalHandle,
 } from "./types.js";
 import { ignoreStaleExtensionCtx } from "./stale-ctx.js";
 
@@ -112,7 +117,27 @@ export default function (pi: ExtensionAPI) {
 
   // ── Restore active tasks from registry on load ──────────────────────────
 
-  restoreActiveBackgroundTasks(piDir, backgroundTasks);
+  const syncHerdr = createSyncHerdrControl();
+  const registryEntryAlive = (entry: RegistryEntry): boolean => entry.handle?.backend === "herdr"
+    ? syncHerdr.exists(entry.handle)
+    : Boolean(entry.paneId && paneExists(entry.paneId));
+  const registryEntryStatus = (entry: RegistryEntry): "alive" | "missing" | "unavailable" => {
+    try {
+      return registryEntryAlive(entry) ? "alive" : "missing";
+    } catch (error) {
+      if (error instanceof Error && error.name === "HerdrUnavailableError") return "unavailable";
+      throw error;
+    }
+  };
+  restoreActiveBackgroundTasks(
+    piDir,
+    backgroundTasks,
+    registryEntryAlive,
+    (entry) => {
+      if (entry.handle?.backend === "herdr") syncHerdr.close(entry.handle);
+      else if (entry.paneId) killAgentPane(entry.paneId, null);
+    },
+  );
 
 
   // ── Widget / timer setup ───────────────────────────────────────────────
@@ -130,6 +155,11 @@ export default function (pi: ExtensionAPI) {
     {
       backgroundTasks,
       checkTaskCompletion,
+      resourceExists: (task) => task.handle?.backend === "herdr"
+        ? createDefaultHerdrTerminalBackend().isAlive(task.handle)
+        : task.paneId
+          ? paneExists(task.paneId)
+          : false,
       killAgentPane: (paneId, originalPane) => {
         if (paneId) killAgentPane(paneId, originalPane);
       },
@@ -260,16 +290,27 @@ export default function (pi: ExtensionAPI) {
         const entry = readRegistry(piDir).find(
           (candidate) => candidate.id === id,
         );
+        const entryStatus = entry ? registryEntryStatus(entry) : "missing";
+        if (entryStatus === "unavailable") {
+          return {
+            content: [{ type: "text" as const, text: "The HerdR session for this conversation is temporarily unavailable. The durable task record was preserved; retry when HerdR reconnects." }],
+            details: { phase: "failed" as const, error: "HerdR temporarily unavailable" },
+            isError: true,
+          };
+        }
         if (
           params.background !== false &&
-          entry?.paneId &&
-          paneExists(entry.paneId)
+          entry &&
+          entryStatus === "alive"
         ) {
           const bgtask: BackgroundTask = {
             dir: artifactsDir,
             agentType: entry.agentType,
             sessionName,
-            paneId: entry.paneId,
+            paneId: entry.handle?.resourceId ?? entry.paneId,
+            handle: entry.handle,
+            backend: entry.handle?.backend ?? "tmux",
+            exitSentinelPath: entry.handle?.backend === "herdr" ? getExitSentinelPath(piDir, entry.id) : undefined,
             originalPane: null,
             description: params.description || entry.description,
             startedAt: entry.startedAt,
@@ -278,13 +319,21 @@ export default function (pi: ExtensionAPI) {
             conversationId,
             recentCalls: [],
           };
-          backgroundTasks.set(id, bgtask);
+                    backgroundTasks.set(id, bgtask);
+          const steerResult = steerRunningBackgroundTask(bgtask.paneId, params.prompt, bgtask.handle);
+          if (!steerResult.ok) {
+            return {
+              content: [{ type: "text" as const, text: `Conversation "${conversationId}" was restored, but the follow-up prompt could not be delivered (${steerResult.reason}).` }],
+              details: { phase: "failed" as const, error: `resume steering failed: ${steerResult.reason}` },
+              isError: true,
+            };
+          }
 
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Resumed conversation "${conversationId}" via ${sessionName}. The subagent is running in background and will notify on completion.`,
+                text: `Resumed conversation "${conversationId}" via ${sessionName} and delivered the follow-up prompt. The subagent is running in background and will notify on completion.`,
               },
             ],
             details: {
@@ -352,17 +401,27 @@ export default function (pi: ExtensionAPI) {
          resume = true;
          resumeSessionRef = entry.sessionRef;
 
-        // If background and pane still alive, reattach to tracker
+        // If background and the terminal resource is still alive, reattach to the tracker.
+        const entryStatus = registryEntryStatus(entry);
+        if (entryStatus === "unavailable") {
+          return {
+            content: [{ type: "text" as const, text: "The HerdR session for this task is temporarily unavailable. The durable task record was preserved; retry when HerdR reconnects." }],
+            details: { phase: "failed" as const, error: "HerdR temporarily unavailable" },
+            isError: true,
+          };
+        }
         if (
           params.background !== false &&
-          entry.paneId &&
-          paneExists(entry.paneId)
+          entryStatus === "alive"
         ) {
           const bgtask: BackgroundTask = {
             dir: artifactsDir,
             agentType: entry.agentType,
             sessionName,
-            paneId: entry.paneId,
+            paneId: entry.handle?.resourceId ?? entry.paneId,
+            handle: entry.handle,
+            backend: entry.handle?.backend ?? "tmux",
+            exitSentinelPath: entry.handle?.backend === "herdr" ? getExitSentinelPath(piDir, entry.id) : undefined,
             originalPane: null,
             description: params.description || entry.description,
             startedAt: entry.startedAt,
@@ -372,12 +431,20 @@ export default function (pi: ExtensionAPI) {
             recentCalls: [],
           };
           backgroundTasks.set(id, bgtask);
+          const steerResult = steerRunningBackgroundTask(bgtask.paneId, params.prompt, bgtask.handle);
+          if (!steerResult.ok) {
+            return {
+              content: [{ type: "text" as const, text: `Task "${params.task_id}" was restored, but the follow-up prompt could not be delivered (${steerResult.reason}).` }],
+              details: { phase: "failed" as const, error: `resume steering failed: ${steerResult.reason}` },
+              isError: true,
+            };
+          }
 
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Resumed task "${params.task_id}". The subagent is still running in background; avoid relaunching overlapping work. Use /task-sessions to inspect it, and it will notify on completion.`,
+                text: `Resumed task "${params.task_id}" and delivered the follow-up prompt. The subagent is still running in background; avoid relaunching overlapping work. Use /task-sessions to inspect it, and it will notify on completion.`,
               },
             ],
             details: {
@@ -412,12 +479,16 @@ export default function (pi: ExtensionAPI) {
          sessionName = conversationId ?? `task-${id}`;
        }
 
-      if (conversationId && !hasTmux()) {
+      const durableBackendPreference = (process.env.PI_TASK_BACKEND ?? "auto").trim().toLowerCase();
+      const herdrContextAvailable = process.env.HERDR_ENV === "1"
+        && Boolean(process.env.HERDR_PANE_ID)
+        && Boolean(process.env.HERDR_SOCKET_PATH);
+      if (conversationId && (durableBackendPreference === "sdk" || (!hasTmux() && !herdrContextAvailable))) {
         return {
           content: [
             {
               type: "text" as const,
-              text: "Durable conversations require the tmux/CLI backend so Pi can save and reopen the subagent session. Install/start tmux or omit conversation_id for a one-shot SDK task.",
+              text: "Durable conversations require an active HerdR or tmux terminal backend so Pi can save and reopen the subagent session. Start Pi inside HerdR, start tmux, or omit conversation_id for a one-shot SDK task.",
             },
           ],
           details: {
@@ -466,15 +537,37 @@ export default function (pi: ExtensionAPI) {
         resumeSessionRef,
       );
       const envPrefix = `PI_TASK_TOOL_DISABLED=1`;
-      const forceTmuxBackend =
-        process.env.PI_TASK_BACKEND === "tmux" ||
-        process.env.PI_TASK_USE_TMUX_BACKEND === "1";
-      const forceSdkBackend =
-        process.env.PI_TASK_BACKEND === "sdk" ||
-        process.env.PI_TASK_USE_SDK_BACKEND === "1";
-      const tmuxAvailable = hasTmux();
-      const useSdkBackend =
-        forceSdkBackend || (!forceTmuxBackend && !tmuxAvailable);
+      const legacyRequestedBackend = process.env.PI_TASK_USE_TMUX_BACKEND === "1"
+        ? "tmux"
+        : process.env.PI_TASK_USE_SDK_BACKEND === "1"
+          ? "sdk"
+          : undefined;
+      const requestedBackend = (legacyRequestedBackend ?? process.env.PI_TASK_BACKEND ?? "auto").trim().toLowerCase();
+      if (!["auto", "sdk", "tmux", "herdr"].includes(requestedBackend)) {
+        return {
+          content: [{ type: "text", text: `Invalid PI_TASK_BACKEND=${requestedBackend}. Expected auto, sdk, tmux, or herdr.` }],
+          details: { phase: "failed" as const, error: "invalid backend" },
+        };
+      }
+      const herdrBackend = createDefaultHerdrTerminalBackend();
+      const hasHerdr = requestedBackend === "auto" || requestedBackend === "herdr"
+        ? await herdrBackend.available()
+        : false;
+      const selectedBackend = selectTerminalBackend({
+        requested: requestedBackend as "auto" | "sdk" | "tmux" | "herdr",
+        hasHerdr,
+        hasTmux: hasTmux(),
+      });
+      if (!selectedBackend) {
+        const error = requestedBackend === "herdr"
+          ? "HerdR backend requires Pi to run inside an active HerdR pane with HERDR_SOCKET_PATH set. Start Pi from HerdR; `herdr integration install pi` is optional."
+          : `Requested ${requestedBackend} backend is unavailable.`;
+        return {
+          content: [{ type: "text", text: error }],
+          details: { phase: "failed" as const, error },
+        };
+      }
+      const useSdkBackend = selectedBackend === "sdk";
 
           const toolSelection = buildAgentToolSelection({
             tools: agent.tools,
@@ -506,7 +599,7 @@ export default function (pi: ExtensionAPI) {
             dir: artifactsDir,
             agentType: agent.name,
             sessionName,
-            backend: "sdk",
+                    backend: selectedBackend,
             originalPane: null,
             description: descText,
             startedAt: Date.now(),
@@ -618,24 +711,39 @@ export default function (pi: ExtensionAPI) {
       }
 
       const shellCommand = `${envPrefix} pi ${piArgs.map((a) => shellQuote(a)).join(" ")}`;
-          const sessionFile = join(sessionDir, sessionName + ".jsonl");
-          const tmuxCommand = wrapWithPaneExitWatcher(
-            sessionFile,
-        `cd ${shellQuote(ctx.cwd)} && ${shellCommand}`,
-      );
+      const sessionFile = join(sessionDir, sessionName + ".jsonl");
+      const exitSentinelPath = getExitSentinelPath(piDir, id);
+      if (selectedBackend === "herdr") ensureExitSentinelDirectory(exitSentinelPath);
+      const childCommand = `cd ${shellQuote(ctx.cwd)} && ${shellCommand}`;
+      const terminalCommand = selectedBackend === "herdr"
+        ? wrapWithHerdrExitSentinel(childCommand, exitSentinelPath, id, sessionDir)
+        : wrapWithPaneExitWatcher(sessionFile, childCommand);
 
       let paneId: string;
       let originalPane: string | null;
+      let handle: TerminalHandle;
       try {
-        const splitResult = splitWindowPane(ctx.cwd, tmuxCommand);
-        paneId = splitResult.paneId;
-        originalPane = splitResult.originalPane;
-        setPaneRemainOnExit(paneId, Boolean(foregroundTask));
-        if (foregroundTask) {
-          foregroundTask.backend = "tmux";
-              foregroundTask.paneId = paneId;
-          foregroundTask.originalPane = originalPane;
+        if (selectedBackend === "herdr") {
+          handle = await herdrBackend.launch({
+            command: terminalCommand,
+            cwd: ctx.cwd,
+            label: `${agent.name}-${id.slice(0, 8)}`,
+          });
+          paneId = handle.resourceId;
+          originalPane = process.env.HERDR_PANE_ID ?? null;
         } else {
+          const splitResult = splitWindowPane(ctx.cwd, terminalCommand);
+          paneId = splitResult.paneId;
+          originalPane = splitResult.originalPane;
+          handle = { backend: "tmux", resourceId: paneId };
+          setPaneRemainOnExit(paneId, Boolean(foregroundTask));
+        }
+        if (foregroundTask) {
+          foregroundTask.backend = selectedBackend;
+          foregroundTask.paneId = paneId;
+          foregroundTask.handle = handle;
+          foregroundTask.originalPane = originalPane;
+        } else if (selectedBackend === "tmux") {
           setPaneSelfDestruct(paneId, true);
         }
       } catch {
@@ -645,10 +753,10 @@ export default function (pi: ExtensionAPI) {
           content: [
             {
               type: "text" as const,
-              text: "Failed to create tmux split pane for the agent.",
+              text: `Failed to create ${selectedBackend} execution pane for the agent.`,
             },
           ],
-          details: { phase: "failed" as const, error: "tmux split failed" },
+          details: { phase: "failed" as const, error: `${selectedBackend} launch failed` },
           isError: true,
         };
       }
@@ -663,6 +771,7 @@ export default function (pi: ExtensionAPI) {
           sessionName,
           startedAt,
           paneId,
+          handle,
           piDir,
           dir: artifactsDir,
           conversationId,
@@ -683,15 +792,19 @@ export default function (pi: ExtensionAPI) {
                         const onAbort = () => stopProgress();
                         signal?.addEventListener("abort", onAbort, { once: true });
 
-        const completion = await waitForSessionTaskCompletion({
-          sessionDir,
-          sessionName,
-          paneId,
-          signal,
-          timeoutMs: TASK_TIMEOUT_MS,
-          pollMs: 1000,
-          sinceMs: startedAt,
-        });
+            const completion = await waitForSessionTaskCompletion({
+              sessionDir,
+              sessionName,
+              paneId,
+              signal,
+              timeoutMs: TASK_TIMEOUT_MS,
+              pollMs: 1000,
+              sinceMs: startedAt,
+              exitSentinelPath: selectedBackend === "herdr" ? exitSentinelPath : undefined,
+              resourceExists: selectedBackend === "herdr"
+                ? () => herdrBackend.isAlive(handle as Extract<TerminalHandle, { backend: "herdr" }>)
+                : undefined,
+            });
         stopProgress();
         signal?.removeEventListener("abort", onAbort);
         const content = completion.content;
@@ -713,6 +826,7 @@ export default function (pi: ExtensionAPI) {
           sessionName,
           startedAt,
           paneId,
+          handle,
           piDir,
           dir: artifactsDir,
           conversationId,
@@ -722,7 +836,8 @@ export default function (pi: ExtensionAPI) {
           background: false,
         });
         if (phase === "done") {
-          killAgentPane(paneId, originalPane);
+          if (handle.backend === "herdr") await herdrBackend.close(handle);
+          else killAgentPane(paneId, originalPane);
         } else {
           // The subagent pane is still alive after a cancel/failed/timeout
           // (we never reached the done branch). Without this, a user-initiated
@@ -732,7 +847,8 @@ export default function (pi: ExtensionAPI) {
           // with a dangling tmux split. Best-effort: ignore failures (pane may
           // already be gone).
           try {
-            killAgentPane(paneId, originalPane);
+            if (handle.backend === "herdr") await herdrBackend.close(handle);
+            else killAgentPane(paneId, originalPane);
           } catch {
             // ignore
           }
@@ -771,6 +887,8 @@ export default function (pi: ExtensionAPI) {
         agentType: agent.name,
         sessionName,
         paneId,
+        handle,
+        exitSentinelPath: selectedBackend === "herdr" ? exitSentinelPath : undefined,
         originalPane,
         description: descText,
         startedAt: Date.now(),
@@ -778,6 +896,7 @@ export default function (pi: ExtensionAPI) {
         turns: 0,
         conversationId,
         recentCalls: [],
+        backend: selectedBackend,
       };
 
       backgroundTasks.set(id, bgtask);
@@ -790,6 +909,7 @@ export default function (pi: ExtensionAPI) {
         sessionName,
         startedAt: bgtask.startedAt,
         paneId,
+        handle,
         piDir,
         dir: artifactsDir,
         conversationId,
@@ -825,6 +945,10 @@ export default function (pi: ExtensionAPI) {
                   taskId: id,
                   agentType: agent.name,
                   sessionPath: join(sessionDir, `${sessionName}.jsonl`),
+                  backend: selectedBackend,
+                  backendReason: requestedBackend === "auto" && selectedBackend !== "herdr"
+                    ? "HerdR unavailable"
+                    : undefined,
                 }),
           },
         ],

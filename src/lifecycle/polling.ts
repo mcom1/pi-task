@@ -12,9 +12,13 @@ export interface BackgroundPollingDeps {
     paneId?: string;
     artifactsDir?: string;
     taskId?: string;
-    sinceMs?: number;
-  }) => Promise<TaskCompletionSnapshot>;
-  killAgentPane: (paneId: string, originalPane: string | null) => void;
+        sinceMs?: number;
+        resourceExists?: () => boolean | Promise<boolean>;
+        exitSentinelPath?: string;
+      }) => Promise<TaskCompletionSnapshot>;
+      resourceExists?: (task: BackgroundTask) => boolean | Promise<boolean>;
+      closeTask?: (task: BackgroundTask) => void | Promise<void>;
+      killAgentPane: (paneId: string, originalPane: string | null) => void;
   clearTaskWidgetIfIdle: () => void;
   completeTask: typeof completeTask;
   TASK_TIMEOUT_MS: number;
@@ -60,8 +64,10 @@ export function startBackgroundPolling(
             paneId: task.paneId,
             artifactsDir: task.dir,
             taskId: id,
-            sinceMs: task.startedAt,
-          });
+                sinceMs: task.startedAt,
+                resourceExists: deps.resourceExists ? () => deps.resourceExists!(task) : undefined,
+                exitSentinelPath: task.exitSentinelPath,
+              });
 
           if (stopped) return;
 
@@ -84,6 +90,9 @@ export function startBackgroundPolling(
             pollErrors.delete(id);
           }
         } catch (error) {
+          if (error instanceof Error && error.name === "HerdrUnavailableError") {
+            continue;
+          }
           const count = (pollErrors.get(id) ?? 0) + 1;
           pollErrors.set(id, count);
           if (count >= deps.MAX_POLL_ERRORS) {

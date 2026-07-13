@@ -1,11 +1,18 @@
 import type { ToolCallRecord } from "./helpers.js";
+import type { TerminalHandle, TerminalBackendKind } from "./subagent/terminalBackend.js";
+export type { TerminalHandle, HerdrTerminalHandle } from "./subagent/terminalBackend.js";
+
+export type ExecutionBackend = "sdk" | TerminalBackendKind;
 
 export interface BackgroundTask {
   dir: string;
   agentType: string;
   sessionName: string;
+  /** Legacy tmux field retained while old in-memory callers are migrated. */
   paneId?: string;
-  backend?: "sdk" | "tmux";
+  handle?: TerminalHandle;
+  exitSentinelPath?: string;
+  backend?: ExecutionBackend;
   originalPane: string | null;
   description: string;
   startedAt: number;
@@ -29,7 +36,10 @@ export interface RegistryEntry {
   description: string;
   sessionName: string;
   startedAt: number;
+  handle?: TerminalHandle;
+  /** Legacy persisted field accepted by migration only. */
   paneId?: string;
+  backend?: TerminalBackendKind;
   piDir: string;
   dir: string;
   conversationId?: string;
@@ -59,6 +69,6 @@ export interface TaskDetails {
   turn_count?: number;
   tool_uses?: number;
   background?: boolean;
-  backend?: "sdk" | "tmux";
+  backend?: ExecutionBackend;
   tmux_session?: string;
 }

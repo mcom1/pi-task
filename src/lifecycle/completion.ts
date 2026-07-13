@@ -6,6 +6,7 @@ import {
   writeRegistry,
 } from "../conversation.js";
 import { parseResultXml } from "../helpers.js";
+import { createSyncHerdrControl } from "../subagent/herdr.js";
 import { killAgentPane } from "../subagent/tmux.js";
 import { ignoreStaleExtensionCtx } from "../stale-ctx.js";
 import type { BackgroundTask } from "../types.js";
@@ -18,7 +19,12 @@ export function completeTask(
   phase: "done" | "timeout" | "failed",
   piDir: string,
 ): void {
-  if (task.paneId) killAgentPane(task.paneId, task.originalPane);
+  if (task.handle?.backend === "herdr") {
+    const herdr = createSyncHerdrControl();
+    if (herdr.exists(task.handle)) herdr.close(task.handle);
+  } else if (task.paneId) {
+    killAgentPane(task.paneId, task.originalPane);
+  }
 
   const parsed = parseResultXml(content);
   const durationMs = Date.now() - task.startedAt;
@@ -35,6 +41,7 @@ export function completeTask(
     sessionName: task.sessionName,
     startedAt: task.startedAt,
     paneId: task.paneId,
+    handle: task.handle,
     piDir,
     dir: task.dir,
     conversationId: task.conversationId,

@@ -1,3 +1,5 @@
+import type { TerminalHandle } from "../types.js";
+import { createSyncHerdrControl } from "./herdr.js";
 import { paneExists, tmuxSteerPane } from "./tmux.js";
 
 export type SteerResult =
@@ -8,9 +10,19 @@ export type SteerResult =
 export function steerRunningBackgroundTask(
 	paneId: string | null | undefined,
 	prompt: string,
+	handle?: TerminalHandle,
 ): SteerResult {
 	const text = prompt.trim();
-	if (!paneId || !text) return { ok: false, reason: "no_pane" };
+	if (!text) return { ok: false, reason: "no_pane" };
+	if (handle?.backend === "herdr") {
+		try {
+			createSyncHerdrControl().send(handle, text);
+			return { ok: true };
+		} catch {
+			return { ok: false, reason: "inject_failed" };
+		}
+	}
+	if (!paneId) return { ok: false, reason: "no_pane" };
 	if (!paneExists(paneId)) return { ok: false, reason: "pane_dead" };
 	try {
 		tmuxSteerPane(paneId, text);

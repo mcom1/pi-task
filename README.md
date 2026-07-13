@@ -15,7 +15,7 @@ For the full high-quality 89s @ 56 fps version, [download the MP4](https://githu
 - Foreground tasks: parent waits and receives the subagent result directly.
 - Background tasks: parent continues, task widget shows progress, completion arrives as a follow-up.
 - Tmux backend for observable subagent panes.
-- SDK fallback when tmux is unavailable.
+- HerdR and tmux terminal backends, with SDK fallback when neither is available.
 - Agent frontmatter support: `model`, `thinking`, `tools`, `disallowed_tools`.
 - Built-in starter agents: `scout`, `explore`, `general`, `reviewer`.
 - Project/user agent overrides via `.pi/agents/*.md` or `~/.pi/agents/*.md`.
@@ -148,7 +148,9 @@ Keep the parent responsible for orchestration decisions and final verification. 
 |----------|--------|
 | `PI_TASK_CHILD_NO_EXTENSIONS=1` | Child `pi` runs with `--no-extensions` (fewer startup failures in tmux subagents). |
 | `PI_TASK_POLL_MS` | Background poll interval (default 2000). |
-| `PI_TASK_BACKEND` | `tmux` or `sdk` to force backend. |
+| `PI_TASK_BACKEND` | `auto` (default), `herdr`, `tmux`, or `sdk`. `auto` prefers HerdR only when Pi is already running inside an active HerdR pane, then tmux, then SDK. |
+
+For HerdR, install and launch HerdR separately, then start Pi inside a managed pane. pi-task requires `HERDR_ENV=1`, `HERDR_PANE_ID`, and an absolute `HERDR_SOCKET_PATH`; it never starts or installs HerdR. `herdr integration install pi` is optional and improves lifecycle labels, but task completion still comes from Pi session JSONL. Persisted tasks validate both the socket path and HerdR terminal identity before reading, steering, or closing a pane.
 
 ### Background task failed with "Subagent pane exited"
 
