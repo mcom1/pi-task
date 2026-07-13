@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-13
+
+### Added
+
+- Optional HerdR execution backend with geometry-aware, serialized pane spawning, socket/terminal ownership checks, durable resume steering, and parent-owned cleanup.
+- `PI_TASK_BACKEND=auto|herdr|tmux|sdk`; `auto` uses HerdR only when Pi already runs in a HerdR-managed pane.
+
+### Changed
+
+- Task titles now prefix the agent name with `⚙` (for example, `⚙ reviewer`) in initial, live-progress, and completion output.
+- Task lifecycle persistence records completion before terminal cleanup, preventing orphaned widget entries.
+
+### Fixed
+
+- HerdR steering sends text followed by exactly one Enter.
+- HerdR child exit sentinels no longer race the parent completion poller.
+- Removed dead internal declarations and registered all behavioral tests in the package test command.
+
 ## [0.2.6] - 2026-07-10
 
 ### Added

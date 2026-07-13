@@ -1,7 +1,7 @@
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatElapsed } from "../helpers.js";
-import { renderTaskTitleText } from "./taskTitle.js";
+import { renderTaskAgentTitle, renderTaskTitleText } from "./taskTitle.js";
 
 /** Sticky header only: agent • tools • duration. Tool lines stream via onUpdate content. */
 export function renderCall(
@@ -28,7 +28,7 @@ export function renderCall(
   const summary =
     toolUses === 0 && elapsedMs < 1_000 && description
       ? renderTaskTitleText(agentType, description, theme)
-      : theme.fg("toolTitle", agentType) +
+      : renderTaskAgentTitle(agentType, theme) +
         sep +
         theme.fg("text", formatToolCount(toolUses)) +
         sep +
