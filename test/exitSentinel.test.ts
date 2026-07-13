@@ -21,22 +21,15 @@ test("reads only a matching versioned task exit sentinel", () => {
   assert.equal(readExitSentinel(path, "task-1")?.exitCode, 7);
 });
 
-test("HerdR wrapper writes the sentinel before closing a successful pane", () => {
+test("HerdR wrapper records child exit without stealing parent cleanup ownership", () => {
   const command = wrapWithHerdrExitSentinel(
     "pi --mode json",
     "/tmp/task.exit.json",
     "task-1",
-    "/tmp/task.jsonl",
   );
-  const writeIndex = command.indexOf("node -e");
-  const closeIndex = command.indexOf("herdr pane close");
-  assert.ok(writeIndex >= 0);
-  assert.ok(closeIndex > writeIndex);
-  assert.match(command, /if \[ "\$status" -eq 0 \]/);
-  assert.match(command, /task\.jsonl/);
-  assert.match(command, /setInterval/);
-  assert.match(command, /hasUser/);
-  assert.match(command, /active/);
-  assert.match(command, /pane.*close/);
+  assert.match(command, /node -e/);
+  assert.match(command, /task\.exit\.json/);
   assert.match(command, /child exited/);
+  assert.doesNotMatch(command, /herdr pane close/);
+  assert.doesNotMatch(command, /setInterval/);
 });

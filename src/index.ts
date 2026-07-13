@@ -716,7 +716,7 @@ export default function (pi: ExtensionAPI) {
       if (selectedBackend === "herdr") ensureExitSentinelDirectory(exitSentinelPath);
       const childCommand = `cd ${shellQuote(ctx.cwd)} && ${shellCommand}`;
       const terminalCommand = selectedBackend === "herdr"
-        ? wrapWithHerdrExitSentinel(childCommand, exitSentinelPath, id, sessionDir)
+        ? wrapWithHerdrExitSentinel(childCommand, exitSentinelPath, id)
         : wrapWithPaneExitWatcher(sessionFile, childCommand);
 
       let paneId: string;
