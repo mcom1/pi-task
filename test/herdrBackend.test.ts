@@ -6,6 +6,7 @@ import { createHerdrTerminalBackend, createSyncHerdrControl } from "../src/subag
 test("HerdR launch returns a socket-scoped terminal handle", async () => {
   const calls: Array<{ args: string[]; env?: NodeJS.ProcessEnv }> = [];
   const outputs = [
+    JSON.stringify({ pane: { pane_id: "w1:p1", terminal_id: "term-1", tab_id: "w1:t1" } }),
     JSON.stringify({ layout: { panes: [{ pane_id: "w1:p1", rect: { width: 160, height: 40 } }] } }),
     JSON.stringify({ agent: { pane_id: "w1:p2", terminal_id: "term-2" } }),
   ];
@@ -29,11 +30,14 @@ test("HerdR launch returns a socket-scoped terminal handle", async () => {
     socketPath: "/tmp/herdr.sock",
     terminalId: "term-2",
   });
-  assert.deepEqual(calls[0]?.args, ["pane", "layout", "--pane", "w1:p1"]);
-  assert.deepEqual(calls[1]?.args.slice(0, 3), ["agent", "start", "pi-task"]);
-  assert.deepEqual(calls[1]?.args.slice(-4), ["--", "sh", "-lc", "pi --session task"]);
-  assert.ok(calls[1]?.args.includes("right"));
-  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0]?.args, ["pane", "get", "w1:p1"]);
+  assert.deepEqual(calls[1]?.args, ["pane", "layout", "--pane", "w1:p1"]);
+  assert.deepEqual(calls[2]?.args.slice(0, 3), ["agent", "start", "pi-task"]);
+  assert.deepEqual(calls[2]?.args.slice(-4), ["--", "sh", "-lc", "pi --session task"]);
+  assert.ok(calls[2]?.args.includes("right"));
+  const tabFlag = calls[2]?.args.indexOf("--tab") ?? -1;
+  assert.equal(calls[2]?.args[tabFlag + 1], "w1:t1");
+  assert.equal(calls.length, 3);
 });
 
 test("parallel HerdR launches serialize layout inspection and agent creation", async () => {
@@ -41,6 +45,12 @@ test("parallel HerdR launches serialize layout inspection and agent creation", a
   let maxActiveStarts = 0;
   let nextId = 1;
   const run = async (_command: string, args: readonly string[]) => {
+    if (args[0] === "pane" && args[1] === "get") {
+      return {
+        stdout: JSON.stringify({ pane: { pane_id: "w1:p1", terminal_id: "term-1", tab_id: "w1:t1" } }),
+        stderr: "",
+      };
+    }
     if (args[0] === "pane") {
       return {
         stdout: JSON.stringify({ layout: { panes: [{ pane_id: "w1:p1", rect: { width: 160, height: 40 } }] } }),
@@ -77,6 +87,7 @@ test("parallel HerdR launches serialize layout inspection and agent creation", a
 test("HerdR chooses a downward split for a narrow caller pane", async () => {
   const calls: string[][] = [];
   const outputs = [
+    JSON.stringify({ pane: { pane_id: "w1:p1", terminal_id: "term-1", tab_id: "w1:t1" } }),
     JSON.stringify({ layout: { panes: [{ pane_id: "w1:p1", rect: { width: 88, height: 41 } }] } }),
     JSON.stringify({ agent: { pane_id: "w1:p2", terminal_id: "term-2" } }),
   ];
@@ -93,7 +104,31 @@ test("HerdR chooses a downward split for a narrow caller pane", async () => {
   });
 
   await backend.launch({ command: "pi", cwd: "/repo" });
-  assert.ok(calls[1]?.includes("down"));
+  assert.ok(calls[2]?.includes("down"));
+});
+
+test("HerdR launch fails closed when the parent tab cannot be resolved", async () => {
+  const calls: string[][] = [];
+  const backend = createHerdrTerminalBackend({
+    env: {
+      HERDR_ENV: "1",
+      HERDR_PANE_ID: "w1:p1",
+      HERDR_SOCKET_PATH: "/tmp/herdr.sock",
+    },
+    run: async (_command, args) => {
+      calls.push([...args]);
+      return {
+        stdout: JSON.stringify({ pane: { pane_id: "w1:p1", terminal_id: "term-1" } }),
+        stderr: "",
+      };
+    },
+  });
+
+  await assert.rejects(
+    backend.launch({ command: "pi", cwd: "/repo" }),
+    /tab_id/,
+  );
+  assert.deepEqual(calls, [["pane", "get", "w1:p1"]]);
 });
 
 test("HerdR ownership is checked before reads", async () => {

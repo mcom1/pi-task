@@ -11,6 +11,7 @@ import {
 interface HerdrPane {
   pane_id: string;
   terminal_id: string;
+  tab_id?: string;
 }
 
 interface HerdrResponse<T> {
@@ -63,6 +64,14 @@ function paneFrom(value: unknown): HerdrPane {
   return pane as HerdrPane;
 }
 
+function parentTabFrom(value: unknown): string {
+  const pane = paneFrom(value);
+  if (typeof pane.tab_id !== "string" || !pane.tab_id) {
+    throw new Error("HerdR parent pane response did not include tab_id");
+  }
+  return pane.tab_id;
+}
+
 function splitDirectionFromLayout(
   layout: HerdrLayout,
   paneId: string,
@@ -113,6 +122,11 @@ export function createHerdrTerminalBackend(
     return "right";
   };
 
+  const resolveParentTab = async (): Promise<string> => {
+    const response = await run(["pane", "get", env.HERDR_PANE_ID as string]);
+    return parentTabFrom(decode(response.stdout, "parent pane get"));
+  };
+
   const verifyOwnership = async (rawHandle: Parameters<TerminalBackend["isAlive"]>[0]): Promise<HerdrTerminalHandle> => {
     const handle = requireHerdrHandle(rawHandle);
     if (!socketPath || handle.socketPath !== socketPath) {
@@ -133,7 +147,7 @@ export function createHerdrTerminalBackend(
       if (env.HERDR_ENV !== "1" || !env.HERDR_PANE_ID || !socketPath || !isAbsolute(socketPath)) return false;
       try {
         await run(["status", "server"]);
-        await run(["pane", "current", "--current"]);
+        await resolveParentTab();
         return true;
       } catch {
         return false;
@@ -145,10 +159,12 @@ export function createHerdrTerminalBackend(
         if (env.HERDR_ENV !== "1" || !env.HERDR_PANE_ID || !socketPath || !isAbsolute(socketPath)) {
           throw new Error("HerdR backend requires Pi to run inside an active HerdR pane");
         }
+        const parentTab = await resolveParentTab();
         const direction = await chooseSplitDirection(input.direction);
         const response = await run([
           "agent", "start", input.label ?? "pi-task",
           "--cwd", input.cwd,
+          "--tab", parentTab,
           "--split", direction,
           "--no-focus",
           "--", "sh", "-lc", input.command,
