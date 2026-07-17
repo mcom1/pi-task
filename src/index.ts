@@ -727,7 +727,9 @@ export default function (pi: ExtensionAPI) {
           handle = await herdrBackend.launch({
             command: terminalCommand,
             cwd: ctx.cwd,
-            label: `${agent.name}-${id.slice(0, 8)}`,
+                label: `${agent.name}-${id.slice(0, 8)}`,
+                workspaceGroup: params.workspace_group,
+
           });
           paneId = handle.resourceId;
           originalPane = process.env.HERDR_PANE_ID ?? null;

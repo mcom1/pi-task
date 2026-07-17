@@ -56,15 +56,33 @@ export function restoreActiveBackgroundTasks(
         paneId: entry.paneId,
         completedAt: Date.now(),
       });
-      if (paneAlive && paneId) {
-        if (closeResource) closeResource(entry);
-        else if (entry.handle?.backend !== "herdr") killAgentPane(paneId, null);
+      if (entry.handle?.backend === "herdr" && entry.handle.workspaceId) {
+        try {
+          closeResource?.(entry);
+        } catch {
+          // A missing resource is still removed from durable state below.
+        }
+      } else if (paneAlive && paneId) {
+        try {
+          if (closeResource) closeResource(entry);
+          else if (entry.handle?.backend !== "herdr") killAgentPane(paneId, null);
+        } catch {
+          // A missing resource is still removed from durable state below.
+        }
       }
+
       staleIds.push(entry.id);
       continue;
     }
 
     if (!paneAlive) {
+      if (entry.handle?.backend === "herdr" && entry.handle.workspaceId) {
+        try {
+          closeResource?.(entry);
+        } catch {
+          // A missing resource is still removed from durable state below.
+        }
+      }
       upsertTaskSessionHistory(piDir, {
         id: entry.id,
         status: "failed",

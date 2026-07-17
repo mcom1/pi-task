@@ -130,4 +130,47 @@ describe("restoreActiveBackgroundTasks", () => {
     );
     assert.equal(history[0]?.status, "failed");
   });
+
+  it("continues restoring when cleanup of a dead grouped HerdR pane fails", () => {
+    const piDir = makePiDir();
+    const taskDir = join(piDir, "artifacts", "sessions", "task-herdr-dead");
+    writeSession(taskDir, "task-task-herdr-dead");
+    writeJson(join(piDir, "task-registry.json"), [
+      {
+        id: "task-herdr-dead",
+        dir: taskDir,
+        sessionName: "task-task-herdr-dead",
+        startedAt: Date.now() - 1000,
+        paneId: "w1:p2",
+        handle: {
+          backend: "herdr",
+          resourceId: "w1:p2",
+          socketPath: "/tmp/herdr.sock",
+          terminalId: "term-2",
+          workspaceId: "w1",
+          workspaceGroup: "parallel-retry",
+        },
+        agentType: "scout",
+        description: "dead grouped task",
+        background: true,
+      },
+    ]);
+
+    assert.doesNotThrow(() => {
+      restoreActiveBackgroundTasks(
+        piDir,
+        new Map(),
+        () => false,
+        () => {
+          throw new Error("workspace_not_found");
+        },
+      );
+    });
+
+    assert.deepEqual(readJson<unknown[]>(join(piDir, "task-registry.json")), []);
+    const history = readJson<Array<{ id: string; status: string }>>(
+      join(piDir, "task-session-history.json"),
+    );
+    assert.equal(history[0]?.status, "failed");
+  });
 });

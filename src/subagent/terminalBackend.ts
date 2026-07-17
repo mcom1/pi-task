@@ -14,6 +14,8 @@ export type TerminalHandle =
       resourceId: string;
       socketPath: string;
       terminalId: string;
+      workspaceId?: string;
+      workspaceGroup?: string;
     };
 
 export type HerdrTerminalHandle = Extract<TerminalHandle, { backend: "herdr" }>;
@@ -25,6 +27,7 @@ export interface TerminalLaunchInput {
   direction?: "right" | "down";
   env?: Record<string, string>;
   remainOnExit?: boolean;
+  workspaceGroup?: string;
 }
 
 export interface CommandRunOptions {

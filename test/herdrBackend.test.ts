@@ -3,11 +3,12 @@ import test from "node:test";
 
 import { createHerdrTerminalBackend, createSyncHerdrControl } from "../src/subagent/herdr.js";
 
-test("HerdR launch returns a socket-scoped terminal handle", async () => {
+test("HerdR launch creates an isolated workspace and returns its agent pane", async () => {
   const calls: Array<{ args: string[]; env?: NodeJS.ProcessEnv }> = [];
   const outputs = [
-    JSON.stringify({ layout: { panes: [{ pane_id: "w1:p1", rect: { width: 160, height: 40 } }] } }),
-    JSON.stringify({ agent: { pane_id: "w1:p2", terminal_id: "term-2" } }),
+    JSON.stringify({ workspace: { workspace_id: "w2" }, root_pane: { pane_id: "w2:p1" } }),
+    JSON.stringify({ agent: { pane_id: "w2:p2", terminal_id: "term-2" } }),
+    "",
   ];
   const backend = createHerdrTerminalBackend({
     env: {
@@ -25,35 +26,40 @@ test("HerdR launch returns a socket-scoped terminal handle", async () => {
 
   assert.deepEqual(handle, {
     backend: "herdr",
-    resourceId: "w1:p2",
+    resourceId: "w2:p2",
     socketPath: "/tmp/herdr.sock",
     terminalId: "term-2",
+    workspaceId: "w2",
   });
-  assert.deepEqual(calls[0]?.args, ["pane", "layout", "--pane", "w1:p1"]);
-  assert.deepEqual(calls[1]?.args.slice(0, 3), ["agent", "start", "pi-task"]);
+  assert.deepEqual(calls[0]?.args, ["workspace", "create", "--cwd", "/repo", "--label", "pi-task", "--no-focus"]);
+  assert.deepEqual(calls[1]?.args.slice(0, 7), ["agent", "start", "pi-task", "--workspace", "w2", "--cwd", "/repo"]);
   assert.deepEqual(calls[1]?.args.slice(-4), ["--", "sh", "-lc", "pi --session task"]);
-  assert.ok(calls[1]?.args.includes("right"));
-  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[2]?.args, ["pane", "close", "w2:p1"]);
+  assert.ok(calls[1]?.args.includes("--no-focus"));
+  assert.ok(!calls[1]?.args.includes("--split"));
+  assert.equal(calls.length, 3);
 });
 
-test("parallel HerdR launches serialize layout inspection and agent creation", async () => {
+test("parallel HerdR launches serialize workspace and agent creation", async () => {
   let activeStarts = 0;
   let maxActiveStarts = 0;
   let nextId = 1;
   const run = async (_command: string, args: readonly string[]) => {
-    if (args[0] === "pane") {
+    const id = nextId;
+    if (args[0] === "workspace") {
       return {
-        stdout: JSON.stringify({ layout: { panes: [{ pane_id: "w1:p1", rect: { width: 160, height: 40 } }] } }),
+        stdout: JSON.stringify({ workspace: { workspace_id: `w${id}` }, root_pane: { pane_id: `w${id}:p1` } }),
         stderr: "",
       };
     }
+    if (args[0] === "pane") return { stdout: "", stderr: "" };
     activeStarts += 1;
     maxActiveStarts = Math.max(maxActiveStarts, activeStarts);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const id = nextId++;
+    nextId += 1;
     activeStarts -= 1;
     return {
-      stdout: JSON.stringify({ agent: { pane_id: `w1:p${id + 1}`, terminal_id: `term-${id}` } }),
+      stdout: JSON.stringify({ agent: { pane_id: `w${id}:p2`, terminal_id: `term-${id}` } }),
       stderr: "",
     };
   };
@@ -72,28 +78,6 @@ test("parallel HerdR launches serialize layout inspection and agent creation", a
 
   assert.equal(maxActiveStarts, 1);
   assert.equal(new Set(handles.map((handle) => handle.terminalId)).size, 2);
-});
-
-test("HerdR chooses a downward split for a narrow caller pane", async () => {
-  const calls: string[][] = [];
-  const outputs = [
-    JSON.stringify({ layout: { panes: [{ pane_id: "w1:p1", rect: { width: 88, height: 41 } }] } }),
-    JSON.stringify({ agent: { pane_id: "w1:p2", terminal_id: "term-2" } }),
-  ];
-  const backend = createHerdrTerminalBackend({
-    env: {
-      HERDR_ENV: "1",
-      HERDR_PANE_ID: "w1:p1",
-      HERDR_SOCKET_PATH: "/tmp/herdr.sock",
-    },
-    run: async (_command, args) => {
-      calls.push([...args]);
-      return { stdout: outputs.shift() ?? "", stderr: "" };
-    },
-  });
-
-  await backend.launch({ command: "pi", cwd: "/repo" });
-  assert.ok(calls[1]?.includes("down"));
 });
 
 test("HerdR ownership is checked before reads", async () => {
@@ -130,6 +114,49 @@ test("HerdR ownership is checked before reads", async () => {
   assert.equal(calls.length, 1);
 });
 
+test("HerdR cleanup closes the task workspace without requiring a live agent pane", async () => {
+  const calls: string[][] = [];
+  const backend = createHerdrTerminalBackend({
+    env: { HERDR_ENV: "1", HERDR_SOCKET_PATH: "/tmp/herdr.sock" },
+    run: async (_command, args) => {
+      calls.push([...args]);
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  await backend.close({
+    backend: "herdr",
+    resourceId: "w2:p2",
+    socketPath: "/tmp/herdr.sock",
+    terminalId: "term-2",
+    workspaceId: "w2",
+  });
+
+  assert.deepEqual(calls, [["workspace", "close", "w2"]]);
+});
+
+test("HerdR cleanup after restart closes only an untracked grouped task pane", async () => {
+  const calls: string[][] = [];
+  const backend = createHerdrTerminalBackend({
+    env: { HERDR_ENV: "1", HERDR_SOCKET_PATH: "/tmp/herdr.sock" },
+    run: async (_command, args) => {
+      calls.push([...args]);
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  await backend.close({
+    backend: "herdr",
+    resourceId: "w2:p2",
+    socketPath: "/tmp/herdr.sock",
+    terminalId: "term-2",
+    workspaceId: "w2",
+    workspaceGroup: "parallel-retry",
+  });
+
+  assert.deepEqual(calls, [["pane", "close", "w2:p2"]]);
+});
+
 test("sync steering accepts HerdR mutation commands with empty stdout", () => {
   const calls: string[][] = [];
   const control = createSyncHerdrControl(
@@ -155,6 +182,64 @@ test("sync steering accepts HerdR mutation commands with empty stdout", () => {
     ["pane", "send-text", "w1:p2", "follow up"],
     ["pane", "send-keys", "w1:p2", "enter"],
   ]);
+});
+
+test("sync cleanup closes a task-owned HerdR workspace without a live pane", () => {
+  const calls: string[][] = [];
+  const control = createSyncHerdrControl(
+    { HERDR_SOCKET_PATH: "/tmp/herdr.sock" },
+    (args) => {
+      calls.push([...args]);
+      return "";
+    },
+  );
+
+  control.close({
+    backend: "herdr",
+    resourceId: "w2:p2",
+    socketPath: "/tmp/herdr.sock",
+    terminalId: "term-2",
+    workspaceId: "w2",
+  });
+
+  assert.deepEqual(calls, [["workspace", "close", "w2"]]);
+});
+
+test("sync cleanup after restart closes only an untracked grouped task pane", () => {
+  const calls: string[][] = [];
+  const control = createSyncHerdrControl(
+    { HERDR_SOCKET_PATH: "/tmp/herdr.sock" },
+    (args) => {
+      calls.push([...args]);
+      return "";
+    },
+  );
+
+  control.close({
+    backend: "herdr",
+    resourceId: "w2:p2",
+    socketPath: "/tmp/herdr.sock",
+    terminalId: "term-2",
+    workspaceId: "w2",
+    workspaceGroup: "parallel-retry",
+  });
+
+  assert.deepEqual(calls, [["pane", "close", "w2:p2"]]);
+});
+
+test("sync cleanup ignores an already-closed HerdR workspace", () => {
+  const control = createSyncHerdrControl(
+    { HERDR_SOCKET_PATH: "/tmp/herdr.sock" },
+    () => { throw new Error("workspace_not_found"); },
+  );
+
+  assert.doesNotThrow(() => control.close({
+    backend: "herdr",
+    resourceId: "w2:p2",
+    socketPath: "/tmp/herdr.sock",
+    terminalId: "term-2",
+    workspaceId: "w2",
+  }));
 });
 
 test("async steering sends text followed by exactly one delayed Enter", async () => {

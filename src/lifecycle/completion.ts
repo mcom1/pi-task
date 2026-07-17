@@ -13,8 +13,7 @@ import type { BackgroundTask } from "../types.js";
 
 function closeTaskResource(task: BackgroundTask): void {
   if (task.handle?.backend === "herdr") {
-    const herdr = createSyncHerdrControl();
-    if (herdr.exists(task.handle)) herdr.close(task.handle);
+    createSyncHerdrControl().close(task.handle);
   } else if (task.paneId) {
     killAgentPane(task.paneId, task.originalPane);
   }
