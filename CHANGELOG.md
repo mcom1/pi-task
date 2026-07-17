@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Launch ungrouped HerdR tasks in the caller's tab while retaining dedicated shared workspaces for grouped parallel tasks.
 - Serialize grouped HerdR workspace launches and retain shared workspace ownership across concurrent tasks.
 - Close only the task pane when grouped workspace state is unavailable after a Pi restart, preventing cleanup from terminating sibling tasks.
 
