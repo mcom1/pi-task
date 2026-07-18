@@ -15,11 +15,77 @@ test("tmux terminal backend preserves the launch handle contract", async () => {
   const handle = await backend.launch({
     cwd: "/repo",
     command: "pi --session task",
+    direction: "right",
   });
 
   assert.deepEqual(handle, {
     backend: "tmux",
     resourceId: "%42",
   });
-  assert.equal(calls.length, 1);
+  assert.deepEqual(calls, [[
+    "split-window",
+    "-h",
+    "-d",
+    "-P",
+    "-F",
+    "#{pane_id}",
+    "-c",
+    "/repo",
+    "pi --session task",
+  ]]);
+});
+
+test("tmux terminal backend auto-detects from current pane geometry", async () => {
+  const calls: string[][] = [];
+  const backend = createTmuxTerminalBackend({
+    run: async (_command, args) => {
+      calls.push([...args]);
+      return calls.length === 1
+        ? { stdout: "120 30\n", stderr: "" }
+        : { stdout: "%43\n", stderr: "" };
+    },
+  });
+
+  const handle = await backend.launch({ cwd: "/repo", command: "pi" });
+
+  assert.equal(handle.resourceId, "%43");
+  assert.deepEqual(calls, [
+    ["display-message", "-p", "#{pane_width} #{pane_height}"],
+    [
+      "split-window",
+      "-h",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-c",
+      "/repo",
+      "pi",
+    ],
+  ]);
+});
+
+test("tmux terminal backend honors PI_TASK_TMUX_SPLIT", async () => {
+  const previousMode = process.env.PI_TASK_TMUX_SPLIT;
+  process.env.PI_TASK_TMUX_SPLIT = "vertical";
+  try {
+    const calls: string[][] = [];
+    const backend = createTmuxTerminalBackend({
+      run: async (_command, args) => {
+        calls.push([...args]);
+        return { stdout: "%44\n", stderr: "" };
+      },
+    });
+
+    await backend.launch({ cwd: "/repo", command: "pi" });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.[1], "-v");
+  } finally {
+    if (previousMode === undefined) {
+      delete process.env.PI_TASK_TMUX_SPLIT;
+    } else {
+      process.env.PI_TASK_TMUX_SPLIT = previousMode;
+    }
+  }
 });

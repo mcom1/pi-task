@@ -957,13 +957,39 @@ import {
 // ─── Task tool hardening contracts ───────────────────────────────────────────
 
 {
-  const t = "chooseTmuxSplitDirection allocates narrow panes vertically";
-  assert.equal(chooseTmuxSplitDirection(120, 40), "-v", t);
+  const t = "chooseTmuxSplitDirection uses the pane aspect ratio";
+  assert.equal(chooseTmuxSplitDirection(120, 30), "-h", t + " wide");
+  assert.equal(chooseTmuxSplitDirection(200, 120), "-v", t + " tall");
+  assert.equal(chooseTmuxSplitDirection(80, 40), "-h", t + " boundary");
 }
 
 {
-  const t = "chooseTmuxSplitDirection allocates wide panes horizontally";
-  assert.equal(chooseTmuxSplitDirection(200, 40), "-h", t);
+  const t = "chooseTmuxSplitDirection honors manual overrides";
+  assert.equal(
+    chooseTmuxSplitDirection(80, 80, "horizontal"),
+    "-h",
+    t + " horizontal",
+  );
+  assert.equal(
+    chooseTmuxSplitDirection(200, 40, "vertical"),
+    "-v",
+    t + " vertical",
+  );
+  assert.equal(
+    chooseTmuxSplitDirection(200, 40, "auto"),
+    "-h",
+    t + " auto",
+  );
+}
+
+{
+  const t = "chooseTmuxSplitDirection falls back safely";
+  assert.equal(chooseTmuxSplitDirection(0, 0), "-v", t + " missing geometry");
+  assert.equal(
+    chooseTmuxSplitDirection(200, 40, "unexpected"),
+    "-h",
+    t + " invalid mode uses auto",
+  );
 }
 
 {

@@ -315,17 +315,19 @@ export type TmuxSplitDirection = "-h" | "-v";
 export function chooseTmuxSplitDirection(
   paneWidth: number,
   paneHeight: number,
+  configuredMode?: string,
 ): TmuxSplitDirection {
-  const minSideBySideWidth = 160;
-  const minStackedHeight = 24;
+  const mode = configuredMode?.trim().toLowerCase();
+  if (mode === "horizontal") return "-h";
+  if (mode === "vertical") return "-v";
 
-  if (Number.isFinite(paneWidth) && paneWidth >= minSideBySideWidth) {
-    return "-h";
-  }
-  if (Number.isFinite(paneHeight) && paneHeight >= minStackedHeight) {
-    return "-v";
-  }
-  return "-h";
+  const hasGeometry =
+    Number.isFinite(paneWidth) &&
+    Number.isFinite(paneHeight) &&
+    paneWidth > 0 &&
+    paneHeight > 0;
+  if (!hasGeometry) return "-v";
+  return paneWidth >= 2 * paneHeight ? "-h" : "-v";
 }
 
 export function buildTmuxSplitWindowArgs(

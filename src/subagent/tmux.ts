@@ -59,6 +59,7 @@ export function splitWindowPane(cwd: string, command: string): TmuxSplitResult {
   const direction = chooseTmuxSplitDirection(
     paneSize?.width ?? 0,
     paneSize?.height ?? 0,
+    process.env.PI_TASK_TMUX_SPLIT,
   );
   const paneId = tmuxCmd(
     buildTmuxSplitWindowArgs(cwd, command, direction, originalPane),

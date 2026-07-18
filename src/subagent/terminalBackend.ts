@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { chooseTmuxSplitDirection } from "../helpers.js";
 
 export type TerminalBackendKind = "tmux" | "herdr";
 export type ExecutionBackendKind = "sdk" | TerminalBackendKind;
@@ -160,8 +161,36 @@ export function createTmuxTerminalBackend(
     },
 
     async launch(input) {
+      const configuredMode =
+        input.direction === "right"
+          ? "horizontal"
+          : input.direction === "down"
+            ? "vertical"
+            : process.env.PI_TASK_TMUX_SPLIT;
+      let paneWidth = 0;
+      let paneHeight = 0;
+      if (configuredMode !== "horizontal" && configuredMode !== "vertical") {
+        try {
+          const sizeResult = await runner.run("tmux", [
+            "display-message",
+            "-p",
+            "#{pane_width} #{pane_height}",
+          ]);
+          const [widthRaw, heightRaw] = sizeResult.stdout.trim().split(/\s+/, 2);
+          paneWidth = Number(widthRaw);
+          paneHeight = Number(heightRaw);
+        } catch {
+          // Missing geometry falls back to tmux's stacked split orientation.
+        }
+      }
+      const direction = chooseTmuxSplitDirection(
+        paneWidth,
+        paneHeight,
+        configuredMode,
+      );
       const result = await runner.run("tmux", [
         "split-window",
+        direction,
         "-d",
         "-P",
         "-F",

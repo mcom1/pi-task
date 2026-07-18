@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-19
+
+### Added
+
+- Configurable tmux pane orientation via `PI_TASK_TMUX_SPLIT=auto|horizontal|vertical`, with aspect-ratio detection in auto mode.
+
 ## [0.3.1] - 2026-07-17
 
 ### Fixed
