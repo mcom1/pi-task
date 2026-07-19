@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
+  findJsonlSessionByName,
   readRegistry,
   upsertTaskSessionHistory,
   writeRegistry,
@@ -25,8 +27,10 @@ export function restoreActiveBackgroundTasks(
       continue;
     }
 
+    const nestedSessionDir = join(entry.dir, "sessions", entry.id);
+    const sessionDir = existsSync(nestedSessionDir) ? nestedSessionDir : entry.dir;
     const sessionFinished = hasAgentFinished(
-      entry.dir,
+      sessionDir,
       entry.sessionName,
       entry.startedAt,
     );
@@ -44,6 +48,11 @@ export function restoreActiveBackgroundTasks(
     }
 
     if (sessionFinished) {
+      const sessionRef = findJsonlSessionByName(
+        piDir,
+        entry.sessionName,
+        entry.agentType,
+      )?.sessionRef;
       upsertTaskSessionHistory(piDir, {
         id: entry.id,
         status: "done",
@@ -55,6 +64,7 @@ export function restoreActiveBackgroundTasks(
         piDir: entry.piDir,
         dir: entry.dir,
         paneId: entry.paneId,
+        sessionRef,
         completedAt: Date.now(),
       });
       if (entry.handle?.backend === "herdr" && entry.handle.workspaceId) {

@@ -22,7 +22,7 @@ See `README.md` for installation, agent configuration, and user-facing behavior.
 This repository has no CI, pre-commit configuration, or command runner. Run:
 
 1. `npm test`
-2. `npx tsc --noEmit --types node`
+2. `npm run typecheck`
 3. `git diff --check`
 
-Run `npx tsc --types node` when testing the local package through its compiled `dist/` entry point.
+Run `npm run build` when testing the local package through its compiled `dist/` entry point.

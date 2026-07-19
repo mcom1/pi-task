@@ -74,4 +74,4 @@ At the soft timeout, terminal backends optionally send Escape and then the wrap-
 
 ## Session lookup
 
-Task history stores a `sessionRef` so later `task_id` and `conversation_id` calls can reopen the same Pi session. Known session path and resume defects are tracked in [`TODO.md`](../TODO.md).
+Task history stores the exact JSONL path as `sessionRef` so later `task_id` and `conversation_id` calls can reopen the same Pi session. Resolution starts from the artifact directory persisted with the task, then checks the canonical `artifacts/tasks/sessions` directory and the legacy `artifacts/sessions` directory.

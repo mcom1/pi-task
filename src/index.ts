@@ -31,6 +31,7 @@ import {
   TASK_TIMEOUT_MS,
 } from "./constants.js";
 import {
+  ensureTaskSessionRef,
   findJsonlSessionByName,
   normalizeConversationId,
   findTaskSessionHistory,
@@ -297,7 +298,7 @@ export default function (pi: ExtensionAPI) {
           if (registeredTaskId) {
             id = registeredTaskId;
             sessionName = conversationId ?? `task-${id}`;
-            const previous = findTaskSessionHistory(piDir, id);
+            let previous = findTaskSessionHistory(piDir, id);
             const metadataAgent = previous?.agentType;
             if (metadataAgent && metadataAgent !== agent.name) {
               return {
@@ -316,6 +317,8 @@ export default function (pi: ExtensionAPI) {
               };
             }
             resume = true;
+            if (previous) previous = ensureTaskSessionRef(piDir, previous);
+            resumeSessionRef = previous?.sessionRef;
 
         const entry = readRegistry(piDir).find(
           (candidate) => candidate.id === id,
@@ -395,6 +398,22 @@ export default function (pi: ExtensionAPI) {
               tmux_session: sessionName,
               background: true,
             },
+          };
+        }
+
+        if (!resumeSessionRef) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Conversation "${conversationId}" was found, but its session JSONL file could not be resolved. Cannot resume without a --session file path.`,
+              },
+            ],
+            details: {
+              phase: "failed" as const,
+              error: "Conversation session file missing",
+            },
+            isError: true,
           };
         }
       } else if (params.task_id) {

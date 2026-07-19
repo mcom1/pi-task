@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Configurable soft timeouts and grace periods for terminal-backed tasks, with one wrap-up request before resource cleanup.
 - Soft timeouts cancel open Pi dialogs with Escape before the wrap-up request; `timeout_send_escape` and `PI_TASK_TIMEOUT_SEND_ESCAPE` can disable it.
 
+### Fixed
+
+- Resolve and persist timestamped child session JSONL paths from the task artifact directory so completed tasks and conversations can resume.
+- Restore completed background tasks from the canonical task session directory.
+- Limit TypeScript's implicit type libraries so `npm run typecheck` and `npm run build` resolve installed declarations consistently.
+
 ## [0.3.2] - 2026-07-19
 
 ### Added

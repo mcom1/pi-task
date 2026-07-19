@@ -95,7 +95,7 @@ Durable specialist conversation:
 
         ```
         .pi/artifacts/task-sessions.json          # conversation_id -> { task_id }
-        .pi/artifacts/sessions/<task-id>/*.jsonl  # subagent session transcript/result
+        .pi/artifacts/tasks/sessions/<task-id>/*.jsonl  # subagent session transcript/result
         .pi/task-registry.json                    # active background tasks
         .pi/task-session-history.json             # task status and session metadata
         ```

@@ -36,24 +36,27 @@ function writeSession(dir: string, sessionName: string, stopReason?: string) {
 }
 
 describe("restoreActiveBackgroundTasks", () => {
-  it("marks completed registry entries done and removes them from registry", () => {
+  it("marks completed canonical registry entries done and persists their exact session path", () => {
     const piDir = makePiDir();
-    const taskDir = join(piDir, "artifacts", "sessions", "task-1");
+    const artifactsDir = join(piDir, "artifacts", "tasks");
+    const taskDir = join(artifactsDir, "sessions", "task-1");
     writeSession(taskDir, "task-task-1", "stop");
-    writeJson(join(piDir, "task-registry.json"), [
-      {
-        id: "task-1",
-        dir: taskDir,
-        sessionName: "task-task-1",
-        startedAt: Date.now() - 1000,
-        paneId: "%missing",
-        agentType: "scout",
-        description: "done task",
-        background: true,
-      },
-    ]);
+    const sessionRef = join(taskDir, "session.jsonl");
+    const startedAt = Date.now() - 1000;
+    const entry = {
+      id: "task-1",
+      dir: artifactsDir,
+      sessionName: "task-task-1",
+      startedAt,
+      paneId: "%missing",
+      agentType: "scout",
+      description: "done task",
+      background: true,
+      piDir,
+    };
+    writeJson(join(piDir, "task-registry.json"), [entry]);
     writeJson(join(piDir, "task-session-history.json"), [
-      { id: "task-1", status: "running", startedAt: Date.now() - 1000 },
+      { ...entry, status: "running" },
     ]);
 
     const backgroundTasks = new Map();
@@ -61,10 +64,11 @@ describe("restoreActiveBackgroundTasks", () => {
 
     assert.equal(backgroundTasks.size, 0);
     assert.deepEqual(readJson<unknown[]>(join(piDir, "task-registry.json")), []);
-    const history = readJson<Array<{ id: string; status: string }>>(
+    const history = readJson<Array<{ id: string; status: string; sessionRef?: string }>>(
       join(piDir, "task-session-history.json"),
     );
     assert.equal(history[0]?.status, "done");
+    assert.equal(history[0]?.sessionRef, sessionRef);
   });
 
   it("preserves durable records during a temporary backend outage", () => {
