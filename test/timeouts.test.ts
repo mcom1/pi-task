@@ -21,6 +21,7 @@ test("task timeout parameters publish bounded positive defaults", () => {
   assert.equal(properties.timeout_seconds?.exclusiveMinimum, 0);
   assert.equal(properties.timeout_seconds?.maximum, MAX_TASK_TIMEOUT_SECONDS);
   assert.equal(properties.timeout_grace_seconds?.type, "number");
+  assert.equal(DEFAULT_TASK_TIMEOUT_GRACE_SECONDS, 5 * 60);
   assert.equal(properties.timeout_grace_seconds?.default, DEFAULT_TASK_TIMEOUT_GRACE_SECONDS);
   assert.equal(properties.timeout_grace_seconds?.exclusiveMinimum, 0);
   assert.equal(properties.timeout_grace_seconds?.maximum, MAX_TASK_TIMEOUT_GRACE_SECONDS);

@@ -42,13 +42,13 @@ export function taskParametersSchema() {
       }),
     ),
     timeout_seconds: Type.Optional(Type.Number({
-      description: "Soft timeout in seconds for terminal-backed tasks before requesting a final report.",
+      description: "Seconds before a terminal-backed task receives a wrap-up request. This is the soft timeout, not the hard kill deadline.",
       default: DEFAULT_TASK_TIMEOUT_SECONDS,
       exclusiveMinimum: 0,
       maximum: MAX_TASK_TIMEOUT_SECONDS,
     })),
     timeout_grace_seconds: Type.Optional(Type.Number({
-      description: "Grace period in seconds after the soft timeout before the terminal resource is closed.",
+      description: "Additional seconds after timeout_seconds and its wrap-up request. The task is closed only after timeout_seconds + timeout_grace_seconds without a final result.",
       default: DEFAULT_TASK_TIMEOUT_GRACE_SECONDS,
       exclusiveMinimum: 0,
       maximum: MAX_TASK_TIMEOUT_GRACE_SECONDS,

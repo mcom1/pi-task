@@ -1,7 +1,7 @@
 export const BACKGROUND_CHECK_MS = 10_000; // poll every 10 sec
 export const COUNT_POLL_MS = 3_000; // update toolcall counts every 3 sec
 export const DEFAULT_TASK_TIMEOUT_SECONDS = 30 * 60;
-export const DEFAULT_TASK_TIMEOUT_GRACE_SECONDS = 2 * 60;
+export const DEFAULT_TASK_TIMEOUT_GRACE_SECONDS = 5 * 60;
 export const MAX_TASK_TIMEOUT_SECONDS = 24 * 60 * 60;
 export const MAX_TASK_TIMEOUT_GRACE_SECONDS = 60 * 60;
 export const TASK_TIMEOUT_MS = DEFAULT_TASK_TIMEOUT_SECONDS * 1_000;
