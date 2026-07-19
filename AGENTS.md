@@ -2,7 +2,7 @@
 
 Scope: this repository.
 
-See `README.md` for installation, agent configuration, and user-facing behavior.
+See `README.md` for installation, agent configuration, and user-facing behavior. See `TODO.md` for known defects and investigation work.
 
 ## Task lifecycle
 
