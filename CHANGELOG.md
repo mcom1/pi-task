@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Configurable soft timeouts and grace periods for terminal-backed tasks, with one wrap-up request before resource cleanup.
+
 ## [0.3.2] - 2026-07-19
 
 ### Added

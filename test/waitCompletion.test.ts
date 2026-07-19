@@ -255,4 +255,110 @@ for (const reason of ["stop", "endTurn", "length", "error", "aborted"]) {
   }
 }
 
+{
+  const t = "soft timeout requests wrap-up once and accepts a final result during grace";
+  const dir = mkdtempSync(join(tmpdir(), "pi-task-wait-"));
+  const sessionDir = join(dir, "sessions", "test-task");
+  mkdirSync(sessionDir, { recursive: true });
+  let wrapUpCount = 0;
+  try {
+    const result = await waitForTaskCompletion({
+      sessionDir,
+      sessionName: "task-test",
+      paneId: "%1",
+      resourceExists: () => true,
+      timeoutMs: 15,
+      timeoutGraceMs: 200,
+      pollMs: 5,
+      requestWrapUp: () => {
+        wrapUpCount += 1;
+        writeFileSync(join(sessionDir, "task-test.jsonl"), [
+          JSON.stringify({ type: "session_info", name: "task-test" }),
+          JSON.stringify({
+            type: "message",
+            message: {
+              role: "assistant",
+              stopReason: "stop",
+              content: [{ type: "text", text: "final report during grace" }],
+            },
+          }),
+        ].join("\n"));
+      },
+    });
+    assert.equal(result.status, "completed", `${t}: status`);
+    assert.match(result.content, /final report during grace/, `${t}: content`);
+    assert.equal(wrapUpCount, 1, `${t}: warning count`);
+  } finally {
+    cleanup(dir);
+  }
+}
+
+{
+  const t = "hard deadline waits through grace and includes supplied diagnostics";
+  const dir = mkdtempSync(join(tmpdir(), "pi-task-wait-"));
+  const sessionDir = join(dir, "sessions", "test-task");
+  mkdirSync(sessionDir, { recursive: true });
+  let wrapUpCount = 0;
+  const startedAt = Date.now();
+  try {
+    const result = await waitForTaskCompletion({
+      sessionDir,
+      sessionName: "task-test",
+      paneId: "%1",
+      resourceExists: () => true,
+      timeoutMs: 20,
+      timeoutGraceMs: 30,
+      pollMs: 5,
+      requestWrapUp: () => { wrapUpCount += 1; },
+      getTimeoutDiagnostics: async () => "Terminal pane tail:\npartial work",
+    });
+    assert.equal(result.status, "timeout", `${t}: status`);
+    assert.ok(Date.now() - startedAt >= 45, `${t}: grace elapsed`);
+    assert.match(result.content, /soft timeout of 0\.02s and 0\.03s grace period/, `${t}: deadline`);
+    assert.match(result.content, /partial work/, `${t}: diagnostics`);
+    assert.equal(wrapUpCount, 1, `${t}: warning count`);
+  } finally {
+    cleanup(dir);
+  }
+}
+
+{
+  const t = "foreground hard timeout rechecks completion before cleanup";
+  const dir = mkdtempSync(join(tmpdir(), "pi-task-wait-"));
+  const sessionDir = join(dir, "sessions", "test-task");
+  mkdirSync(sessionDir, { recursive: true });
+  try {
+    let wrapUpCount = 0;
+    const result = await waitForTaskCompletion({
+      sessionDir,
+      sessionName: "task-test",
+      paneId: "%1",
+      resourceExists: () => true,
+      timeoutMs: 10,
+      timeoutGraceMs: 10,
+      pollMs: 5,
+      requestWrapUp: () => { wrapUpCount += 1; },
+      getTimeoutDiagnostics: async () => {
+        writeFileSync(join(sessionDir, "task-test.jsonl"), [
+          JSON.stringify({ type: "session_info", name: "task-test" }),
+          JSON.stringify({
+            type: "message",
+            message: {
+              role: "assistant",
+              stopReason: "stop",
+              content: [{ type: "text", text: "finished during timeout reporting" }],
+            },
+          }),
+        ].join("\n"));
+        return "";
+      },
+    });
+    assert.equal(result.status, "completed", `${t}: status`);
+    assert.match(result.content, /finished during timeout reporting/, `${t}: content`);
+    assert.equal(wrapUpCount, 1, `${t}: warning count`);
+  } finally {
+    cleanup(dir);
+  }
+}
+
 console.log("ALL WAIT COMPLETION TESTS PASSED");

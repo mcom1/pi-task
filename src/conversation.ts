@@ -112,6 +112,35 @@ export function writeRegistry(piDir: string, entries: RegistryEntry[]): void {
   writeJsonFile(getRegistryPath(piDir), entries.map((entry) => migrateRegistryEntry(entry)));
 }
 
+export function markRegistryWrapUpRequested(
+  piDir: string,
+  taskId: string,
+  wrapUpRequestedAt: number,
+): void {
+  const entries = readRegistry(piDir);
+  const entry = entries.find((candidate) => candidate.id === taskId);
+  if (!entry) return;
+  entry.wrapUpRequestedAt = wrapUpRequestedAt;
+  writeRegistry(piDir, entries);
+}
+
+export function resetRegistryTaskTimeout(
+  piDir: string,
+  taskId: string,
+  startedAt: number,
+  timeoutMs: number,
+  timeoutGraceMs: number,
+): void {
+  const entries = readRegistry(piDir);
+  const entry = entries.find((candidate) => candidate.id === taskId);
+  if (!entry) return;
+  entry.startedAt = startedAt;
+  entry.timeoutMs = timeoutMs;
+  entry.timeoutGraceMs = timeoutGraceMs;
+  delete entry.wrapUpRequestedAt;
+  writeRegistry(piDir, entries);
+}
+
 function getTaskSessionHistoryPath(piDir: string): string {
   return join(piDir, TASK_SESSION_HISTORY);
 }

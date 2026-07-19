@@ -27,7 +27,10 @@ function makeDeps(
     killAgentPane: any;
     clearTaskWidgetIfIdle: any;
     TASK_TIMEOUT_MS: number;
+    TASK_TIMEOUT_GRACE_MS: number;
     MAX_POLL_ERRORS: number;
+    requestWrapUp: any;
+    getTimeoutDiagnostics: any;
     piDir: string;
     pi: any;
   }> = {},
@@ -39,7 +42,10 @@ function makeDeps(
     clearTaskWidgetIfIdle: () => {},
     completeTask: () => {},
     TASK_TIMEOUT_MS: 10_000,
+    TASK_TIMEOUT_GRACE_MS: 2_000,
     MAX_POLL_ERRORS: 3,
+    requestWrapUp: () => ({ ok: true }),
+    getTimeoutDiagnostics: async () => "",
     piDir: "/tmp",
     pi: { __pi: "captured" },
     ...overrides,
@@ -263,6 +269,141 @@ function makeDeps(
   stop();
 
   assert.equal(completeCount, 1, `${t}: expected exactly one completion`);
+}
+
+
+{
+  const t = "background soft timeout warns once and accepts completion during grace";
+  const backgroundTasks = new Map<any, any>();
+  backgroundTasks.set("t1", {
+    dir: "/tmp/pi-task-artifacts",
+    sessionName: "s1",
+    paneId: "%1",
+    originalPane: null,
+    startedAt: Date.now(),
+    timeoutMs: 15,
+    timeoutGraceMs: 150,
+  });
+  let warningCount = 0;
+  let completedPhase = "";
+  const stop = startBackgroundPolling(makeDeps({
+    backgroundTasks,
+    requestWrapUp: (_task: any, instruction: string) => {
+      warningCount += 1;
+      assert.match(instruction, /stop starting new work/i, t);
+      for (const section of ["completed work", "changed files", "verification", "remaining work", "blockers", "blocker reasons"]) {
+        assert.match(instruction.toLowerCase(), new RegExp(section), `${t}: ${section}`);
+      }
+    },
+    checkTaskCompletion: async () => warningCount > 0
+      ? { status: "completed", content: "grace result" }
+      : { status: "running", content: "" },
+    completeTask: (_pi: any, _id: string, _task: any, content: string, phase: string) => {
+      assert.equal(content, "grace result", t);
+      completedPhase = phase;
+    },
+  }), 5);
+
+  await sleep(80);
+  stop();
+  assert.equal(warningCount, 1, `${t}: warning count`);
+  assert.equal(completedPhase, "done", `${t}: phase`);
+}
+
+{
+  const t = "background hard deadline reports diagnostics then completes as timeout";
+  const backgroundTasks = new Map<any, any>();
+  backgroundTasks.set("t1", {
+    dir: "/tmp/pi-task-artifacts",
+    sessionName: "s1",
+    paneId: "%1",
+    originalPane: null,
+    startedAt: Date.now(),
+    timeoutMs: 10,
+    timeoutGraceMs: 20,
+  });
+  let warningCount = 0;
+  let timeoutContent = "";
+  const stop = startBackgroundPolling(makeDeps({
+    backgroundTasks,
+    requestWrapUp: () => { warningCount += 1; },
+    getTimeoutDiagnostics: async () => "Terminal pane tail:\npartial diagnostics",
+    checkTaskCompletion: async () => ({ status: "running", content: "" }),
+    completeTask: (_pi: any, _id: string, _task: any, content: string, phase: string) => {
+      assert.equal(phase, "timeout", t);
+      timeoutContent = content;
+    },
+  }), 5);
+
+  await sleep(80);
+  stop();
+  assert.equal(warningCount, 1, `${t}: warning count`);
+  assert.match(timeoutContent, /partial diagnostics/, `${t}: diagnostics`);
+  assert.equal(backgroundTasks.size, 0, `${t}: removed`);
+}
+
+{
+  const t = "background warning receives its full grace period when polling is late";
+  const backgroundTasks = new Map<any, any>();
+  backgroundTasks.set("t1", {
+    dir: "/tmp/pi-task-artifacts",
+    sessionName: "s1",
+    paneId: "%1",
+    originalPane: null,
+    startedAt: Date.now(),
+    timeoutMs: 5,
+    timeoutGraceMs: 10,
+  });
+  let warningCount = 0;
+  let completionCount = 0;
+  const stop = startBackgroundPolling(makeDeps({
+    backgroundTasks,
+    requestWrapUp: () => { warningCount += 1; },
+    checkTaskCompletion: async () => ({ status: "running", content: "" }),
+    completeTask: () => { completionCount += 1; },
+  }), 100);
+
+  await sleep(150);
+  assert.equal(warningCount, 1, `${t}: warning count after first late poll`);
+  assert.equal(completionCount, 0, `${t}: no immediate hard timeout`);
+  assert.equal(backgroundTasks.size, 1, `${t}: task remains during grace`);
+
+  await sleep(100);
+  stop();
+  assert.equal(completionCount, 1, `${t}: hard timeout after grace`);
+}
+
+{
+  const t = "background hard timeout rechecks completion before cleanup";
+  const backgroundTasks = new Map<any, any>();
+  backgroundTasks.set("t1", {
+    dir: "/tmp/pi-task-artifacts",
+    sessionName: "s1",
+    paneId: "%1",
+    originalPane: null,
+    startedAt: Date.now() - 100,
+    timeoutMs: 10,
+    timeoutGraceMs: 20,
+    wrapUpRequestedAt: Date.now() - 50,
+  });
+  let completionChecks = 0;
+  let completedPhase = "";
+  const stop = startBackgroundPolling(makeDeps({
+    backgroundTasks,
+    checkTaskCompletion: async () => {
+      completionChecks += 1;
+      return completionChecks > 1
+        ? { status: "completed", content: "finished at deadline" }
+        : { status: "running", content: "" };
+    },
+    completeTask: (_pi: any, _id: string, _task: any, _content: string, phase: string) => {
+      completedPhase = phase;
+    },
+  }), 5);
+
+  await sleep(30);
+  stop();
+  assert.equal(completedPhase, "done", t);
 }
 
 console.log("ALL POLLING TESTS PASSED");

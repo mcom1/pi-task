@@ -1,4 +1,10 @@
 import { Type } from "@sinclair/typebox";
+import {
+  DEFAULT_TASK_TIMEOUT_GRACE_SECONDS,
+  DEFAULT_TASK_TIMEOUT_SECONDS,
+  MAX_TASK_TIMEOUT_GRACE_SECONDS,
+  MAX_TASK_TIMEOUT_SECONDS,
+} from "../constants.js";
 
 export function taskParametersSchema() {
   return Type.Object({
@@ -35,5 +41,17 @@ export function taskParametersSchema() {
         default: true,
       }),
     ),
+    timeout_seconds: Type.Optional(Type.Number({
+      description: "Soft timeout in seconds for terminal-backed tasks before requesting a final report.",
+      default: DEFAULT_TASK_TIMEOUT_SECONDS,
+      exclusiveMinimum: 0,
+      maximum: MAX_TASK_TIMEOUT_SECONDS,
+    })),
+    timeout_grace_seconds: Type.Optional(Type.Number({
+      description: "Grace period in seconds after the soft timeout before the terminal resource is closed.",
+      default: DEFAULT_TASK_TIMEOUT_GRACE_SECONDS,
+      exclusiveMinimum: 0,
+      maximum: MAX_TASK_TIMEOUT_GRACE_SECONDS,
+    })),
   });
 }

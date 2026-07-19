@@ -2,12 +2,10 @@ import {
   getLastAssistantTextFromSessionDir,
   hasAgentFinished,
 } from "../session-text.js";
-import {
-  enrichSubagentFailureMessage,
-  sessionJsonlExists,
-} from "./failure-diagnostics.js";
-    import { readExitSentinel } from "./exitSentinel.js";
-    import { paneDead, paneExists } from "./tmux.js";
+import { enrichSubagentFailureMessage } from "./failure-diagnostics.js";
+import { formatHardTimeoutMessage } from "../task-timeouts.js";
+import { readExitSentinel } from "./exitSentinel.js";
+import { paneExists } from "./tmux.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -32,7 +30,10 @@ export interface WaitForTaskCompletionOptions {
   taskId?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+  timeoutGraceMs?: number;
   pollMs?: number;
+  requestWrapUp?: () => void | Promise<void>;
+  getTimeoutDiagnostics?: () => string | Promise<string>;
   sinceMs?: number;
   resourceExists?: () => boolean | Promise<boolean>;
   exitSentinelPath?: string;
@@ -145,14 +146,48 @@ export async function checkTaskCompletion(
   };
 }
 
+export async function buildHardTimeoutContent(
+  options: Pick<WaitForTaskCompletionOptions,
+    "sessionDir" | "sessionName" | "sinceMs" | "paneId" | "artifactsDir" | "taskId" | "getTimeoutDiagnostics"
+  > & { timeoutMs: number; timeoutGraceMs: number; elapsedMs: number },
+): Promise<string> {
+  const base = formatHardTimeoutMessage(options.timeoutMs, options.timeoutGraceMs);
+  let content = enrichSubagentFailureMessage({
+    kind: "timeout",
+    baseMessage: base,
+    paneId: options.paneId,
+    artifactsDir: options.artifactsDir,
+    taskId: options.taskId,
+    elapsedMs: options.elapsedMs,
+  });
+  const partial = getLastAssistantTextFromSessionDir(
+    options.sessionDir,
+    options.sessionName,
+    options.sinceMs,
+  ).trim();
+  if (partial) content += `\n\nLatest partial assistant response:\n${partial}`;
+  if (options.getTimeoutDiagnostics) {
+    try {
+      const diagnostics = (await options.getTimeoutDiagnostics()).trim();
+      if (diagnostics) content += `\n\n${diagnostics}`;
+    } catch {
+      // Timeout reporting must still complete when pane diagnostics fail.
+    }
+  }
+  return content;
+}
+
 export async function waitForTaskCompletion(
   options: WaitForTaskCompletionOptions,
 ): Promise<TaskCompletionSnapshot> {
   const started = Date.now();
   const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
+  const timeoutGraceMs = options.timeoutGraceMs ?? 2 * 60 * 1000;
+  const hardDeadlineMs = timeoutMs + timeoutGraceMs;
   const pollMs = options.pollMs ?? 1000;
+  let wrapUpRequested = false;
 
-  while (Date.now() - started < timeoutMs) {
+  while (true) {
     if (options.signal?.aborted) {
       const partial = getLastAssistantTextFromSessionDir(
         options.sessionDir,
@@ -168,38 +203,32 @@ export async function waitForTaskCompletion(
 
     const snapshot = await checkTaskCompletion(options);
     if (snapshot.status !== "running") return snapshot;
-    await sleep(pollMs);
-  }
 
-  const elapsedMs = Date.now() - started;
-  const base = `Task timed out after ${Math.round(timeoutMs / 1000)}s without producing a result.`;
-  let content = base;
-  if (options.paneId && paneDead(options.paneId)) {
-    content = enrichSubagentFailureMessage({
-      kind: "timeout",
-      baseMessage: base,
-      paneId: options.paneId,
-      artifactsDir: options.artifactsDir,
-      taskId: options.taskId,
-      elapsedMs,
-    });
-  } else if (
-    options.artifactsDir &&
-    options.taskId &&
-    !sessionJsonlExists(options.artifactsDir, options.taskId)
-  ) {
-    content = enrichSubagentFailureMessage({
-      kind: "timeout",
-      baseMessage: base,
-      artifactsDir: options.artifactsDir,
-      taskId: options.taskId,
-      elapsedMs,
-    });
-  }
+    const elapsedMs = Date.now() - started;
+    if (elapsedMs >= hardDeadlineMs) {
+      const content = await buildHardTimeoutContent({
+        ...options,
+        timeoutMs,
+        timeoutGraceMs,
+        elapsedMs,
+      });
+      const finalSnapshot = await checkTaskCompletion(options);
+      if (finalSnapshot.status !== "running") return finalSnapshot;
+      return {
+        status: "timeout",
+        content,
+        source: "timeout",
+      };
+    }
 
-  return {
-    status: "timeout",
-    content,
-    source: "timeout",
-  };
+    if (elapsedMs >= timeoutMs && !wrapUpRequested) {
+      wrapUpRequested = true;
+      try {
+        await options.requestWrapUp?.();
+      } catch {
+        // A failed steering attempt does not shorten the grace period.
+      }
+    }
+    await sleep(Math.min(pollMs, Math.max(1, hardDeadlineMs - elapsedMs)));
+  }
 }

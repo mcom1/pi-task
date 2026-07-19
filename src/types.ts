@@ -16,6 +16,9 @@ export interface BackgroundTask {
   originalPane: string | null;
   description: string;
   startedAt: number;
+  timeoutMs?: number;
+  timeoutGraceMs?: number;
+  wrapUpRequestedAt?: number;
   toolUses: number;
   turns: number;
   conversationId?: string;
@@ -36,6 +39,9 @@ export interface RegistryEntry {
   description: string;
   sessionName: string;
   startedAt: number;
+  timeoutMs?: number;
+  timeoutGraceMs?: number;
+  wrapUpRequestedAt?: number;
   handle?: TerminalHandle;
   /** Legacy persisted field accepted by migration only. */
   paneId?: string;

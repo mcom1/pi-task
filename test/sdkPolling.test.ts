@@ -28,6 +28,7 @@ test("tmux polling ignores SDK-managed background tasks", async () => {
       clearTaskWidgetIfIdle: () => {},
       completeTask: () => {},
       TASK_TIMEOUT_MS: 10_000,
+      TASK_TIMEOUT_GRACE_MS: 2_000,
       MAX_POLL_ERRORS: 3,
       piDir: "/tmp",
       pi: {},

@@ -100,6 +100,31 @@ describe("restoreActiveBackgroundTasks", () => {
     assert.equal(readJson<Array<{ id: string }>>(join(piDir, "task-registry.json"))[0]?.id, "task-herdr");
   });
 
+  it("restores custom timeout deadlines and warning state", () => {
+    const piDir = makePiDir();
+    const taskDir = join(piDir, "artifacts", "sessions", "task-timeout");
+    writeSession(taskDir, "task-task-timeout");
+    writeJson(join(piDir, "task-registry.json"), [{
+      id: "task-timeout",
+      dir: taskDir,
+      sessionName: "task-task-timeout",
+      startedAt: Date.now() - 1000,
+      handle: { backend: "tmux", resourceId: "%7" },
+      agentType: "general",
+      description: "restore timeout state",
+      timeoutMs: 2500,
+      timeoutGraceMs: 750,
+      wrapUpRequestedAt: 1234,
+    }]);
+
+    const backgroundTasks = new Map();
+    restoreActiveBackgroundTasks(piDir, backgroundTasks, () => true);
+
+    assert.equal(backgroundTasks.get("task-timeout")?.timeoutMs, 2500);
+    assert.equal(backgroundTasks.get("task-timeout")?.timeoutGraceMs, 750);
+    assert.equal(backgroundTasks.get("task-timeout")?.wrapUpRequestedAt, 1234);
+  });
+
   it("marks non-terminal entries failed when their pane is gone", () => {
     const piDir = makePiDir();
     const taskDir = join(piDir, "artifacts", "sessions", "task-2");

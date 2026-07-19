@@ -65,6 +65,8 @@ Background task:
 }
 ```
 
+Terminal-backed calls accept `timeout_seconds` and `timeout_grace_seconds`. The defaults are 1800 and 120 seconds. At the first deadline, pi-task asks the child for a final report; it keeps polling during grace and closes the pane only at the hard deadline. The SDK backend keeps its existing one-shot behavior.
+
 Durable specialist conversation:
 
 ```
