@@ -2,6 +2,8 @@
 
 Delegating task/subagent extension for [Pi](https://pi.dev). It adds a `task` tool that can run specialized subagents in foreground or background, show task progress in the TUI, and deliver background completion back to the parent assistant.
 
+See [`docs/task-lifecycle.md`](docs/task-lifecycle.md) for JSONL polling, completion detection, result delivery, and XML formatting.
+
 ## Demo
 
 ![pi-task background task demo](./media/demo-background-task.webp)
