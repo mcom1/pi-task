@@ -65,7 +65,13 @@ Background task:
 }
 ```
 
-Terminal-backed calls accept `timeout_seconds`, `timeout_grace_seconds`, and `timeout_send_escape`. The defaults are 1800 seconds, 300 seconds, and `true`. At the soft timeout, pi-task sends Escape before the wrap-up request so an open Pi permission or review dialog is cancelled. Tmux and HerdR support this key injection. Set `timeout_send_escape` to `false` to send only the existing wrap-up text and Enter. The pane closes only if no final result arrives during the grace period, so the default hard deadline is 2100 seconds. The SDK backend keeps its existing one-shot behavior.
+### Graceful timeout behavior
+
+Terminal-backed calls accept `timeout_seconds`, `timeout_grace_seconds`, and `timeout_send_escape`. The defaults are 1800 seconds, 300 seconds, and `true`.
+
+At the soft timeout, pi-task sends Escape before the wrap-up request. This cancels standard Pi dialogs so the child can process the request. The sequence has been tested with `pi-permission-system` permission prompts and `pi-show-diffs` review prompts. Tmux and HerdR support the key injection.
+
+Set `timeout_send_escape` to `false` to send only the wrap-up text and Enter. The pane closes if no final result arrives during the additional grace period. The default hard deadline is 2100 seconds. SDK tasks keep their existing one-shot behavior and do not receive terminal steering.
 
 Durable specialist conversation:
 
