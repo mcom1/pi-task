@@ -25,7 +25,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "PI_XAI_SIDE_TOOLS=0 tsx --test test/helpers.test.ts test/conversation.test.ts test/prompt.test.ts test/frontmatter.test.ts test/renderHint.test.ts test/polling.test.ts test/taskWidget.test.ts test/sdkWidgetEvents.test.ts test/sdkBackground.test.ts test/sdkPolling.test.ts test/widgetLifecycle.test.ts test/handles.test.ts test/terminalBackend.test.ts test/herdrBackend.test.ts test/exitSentinel.test.ts test/waitCompletion.test.ts test/restore.test.ts test/lifecycleCompletion.test.ts test/failure-diagnostics.test.ts test/taskTitle.test.ts test/timeouts.test.ts",
+    "test": "PI_XAI_SIDE_TOOLS=0 tsx --test test/helpers.test.ts test/childEnv.test.ts test/conversation.test.ts test/prompt.test.ts test/frontmatter.test.ts test/renderHint.test.ts test/polling.test.ts test/taskWidget.test.ts test/sdkWidgetEvents.test.ts test/sdkBackground.test.ts test/sdkPolling.test.ts test/widgetLifecycle.test.ts test/handles.test.ts test/terminalBackend.test.ts test/herdrBackend.test.ts test/exitSentinel.test.ts test/waitCompletion.test.ts test/restore.test.ts test/lifecycleCompletion.test.ts test/failure-diagnostics.test.ts test/taskTitle.test.ts test/timeouts.test.ts",
     "smoke": "PI_XAI_SIDE_TOOLS=0 tsx test/smoke.ts",
     "prepack": "npm run build",
     "postversion": "git push --follow-tags"

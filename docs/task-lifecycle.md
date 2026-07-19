@@ -18,6 +18,10 @@ parent agent
 
 The JSONL file is the durable source for progress, completion state, and final output. This allows pi-task to recover background tasks after a parent restart.
 
+## Child launch environment
+
+Tmux panes do not receive environment changes made after the tmux server started. Terminal launch commands therefore include required child values explicitly. `PI_TASK_CHILD_PI_SHOW_DIFFS_AUTO_APPROVE=1|0` becomes `PI_SHOW_DIFFS_AUTO_APPROVE=1|0` for tmux and HerdR children; invalid or absent values are omitted. SDK subagents do not use this mapping because they load with extensions disabled.
+
 ## Completion detection
 
 The child does not set completion metadata itself. Pi records the model or runtime outcome as `stopReason` on assistant messages.

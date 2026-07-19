@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Explicit pi-show-diffs auto-approve propagation to tmux and HerdR children through `PI_TASK_CHILD_PI_SHOW_DIFFS_AUTO_APPROVE=1|0`.
 - Configurable soft timeouts and grace periods for terminal-backed tasks, with one wrap-up request before resource cleanup.
 - Soft timeouts cancel open Pi dialogs with Escape before the wrap-up request; `timeout_send_escape` and `PI_TASK_TIMEOUT_SEND_ESCAPE` can disable it.
 

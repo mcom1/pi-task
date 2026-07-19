@@ -157,6 +157,8 @@ Keep the parent responsible for orchestration decisions and final verification. 
 | Variable | Effect |
 |----------|--------|
 | `PI_TASK_CHILD_NO_EXTENSIONS=1` | Child `pi` runs with `--no-extensions` (fewer startup failures in tmux subagents). |
+| `PI_TASK_CHILD_PI_SHOW_DIFFS_AUTO_APPROVE=1|0` | Pass the parent pi-show-diffs session state to terminal children. Pi-task maps it to the child's `PI_SHOW_DIFFS_AUTO_APPROVE`; other values are ignored. |
+| `PI_SHOW_DIFFS_AUTO_APPROVE=1|0` | Child-side variable emitted by the mapping above. Pi-task does not read it directly from the parent environment. |
 | `PI_TASK_POLL_MS` | Background poll interval (default 2000). |
 | `PI_TASK_BACKEND` | `auto` (default), `herdr`, `tmux`, or `sdk`. `auto` prefers HerdR only when Pi is already running inside an active HerdR pane, then tmux, then SDK. |
 | `PI_TASK_TMUX_SPLIT` | Tmux pane orientation: `auto` (default), `horizontal` (side-by-side), or `vertical` (top/bottom). Auto uses a horizontal split when pane width is at least twice its height; otherwise it uses a vertical split. |

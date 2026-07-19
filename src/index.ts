@@ -63,6 +63,7 @@ import {
   startBackgroundPolling,
   startToolStatsPolling,
 } from "./lifecycle/index.js";
+import { buildTerminalChildEnvPrefix } from "./subagent/childEnv.js";
 import { formatSdkBackgroundReceipt, startSdkBackgroundTask } from "./subagent/sdkBackground.js";
 import { runSdkSubagent } from "./subagent/runSdk.js";
 import { createDefaultHerdrTerminalBackend, createSyncHerdrControl } from "./subagent/herdr.js";
@@ -627,7 +628,7 @@ export default function (pi: ExtensionAPI) {
         parentToolNames,
         resumeSessionRef,
       );
-      const envPrefix = `PI_TASK_TOOL_DISABLED=1`;
+      const envPrefix = buildTerminalChildEnvPrefix();
       const legacyRequestedBackend = process.env.PI_TASK_USE_TMUX_BACKEND === "1"
         ? "tmux"
         : process.env.PI_TASK_USE_SDK_BACKEND === "1"
