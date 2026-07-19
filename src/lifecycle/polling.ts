@@ -21,7 +21,7 @@ export interface BackgroundPollingDeps {
     exitSentinelPath?: string;
   }) => Promise<TaskCompletionSnapshot>;
   resourceExists?: (task: BackgroundTask) => boolean | Promise<boolean>;
-  requestWrapUp?: (task: BackgroundTask, instruction: string) => unknown | Promise<unknown>;
+  requestWrapUp?: (task: BackgroundTask, instruction: string, sendEscape: boolean) => unknown | Promise<unknown>;
   persistWrapUpRequested?: (id: string, requestedAt: number) => void | Promise<void>;
   getTimeoutDiagnostics?: (task: BackgroundTask) => string | Promise<string>;
   closeTask?: (task: BackgroundTask) => void | Promise<void>;
@@ -94,7 +94,11 @@ export function startBackgroundPolling(
             task.wrapUpRequestedAt = now;
             await deps.persistWrapUpRequested?.(id, now);
             try {
-              await deps.requestWrapUp?.(task, TASK_WRAP_UP_INSTRUCTION);
+              await deps.requestWrapUp?.(
+                task,
+                TASK_WRAP_UP_INSTRUCTION,
+                task.timeoutSendEscape ?? true,
+              );
             } catch {
               // Keep polling through grace even when steering fails.
             }

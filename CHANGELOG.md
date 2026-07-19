@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Configurable soft timeouts and grace periods for terminal-backed tasks, with one wrap-up request before resource cleanup.
+- Soft timeouts cancel open Pi dialogs with Escape before the wrap-up request; `timeout_send_escape` and `PI_TASK_TIMEOUT_SEND_ESCAPE` can disable it.
 
 ## [0.3.2] - 2026-07-19
 

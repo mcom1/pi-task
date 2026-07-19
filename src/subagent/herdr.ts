@@ -274,8 +274,11 @@ export function createHerdrTerminalBackend(
       }
     },
 
-    async send(handle, message) {
+    async send(handle, message, sendOptions) {
       const owned = await verifyOwnership(handle);
+      if (sendOptions?.sendEscape) {
+        await run(["pane", "send-keys", owned.resourceId, "escape"]);
+      }
       await run(["pane", "send-text", owned.resourceId, message]);
       await new Promise((resolve) => setTimeout(resolve, 300));
       await run(["pane", "send-keys", owned.resourceId, "enter"]);
@@ -374,8 +377,15 @@ export function createSyncHerdrControl(
         throw unavailable;
       }
     },
-    send(handle: HerdrTerminalHandle, message: string): void {
+    send(
+      handle: HerdrTerminalHandle,
+      message: string,
+      sendOptions: { sendEscape?: boolean } = {},
+    ): void {
       if (!this.exists(handle)) throw new Error("HerdR ownership mismatch");
+      if (sendOptions.sendEscape) {
+        run(["pane", "send-keys", handle.resourceId, "escape"], handle.socketPath);
+      }
       run(["pane", "send-text", handle.resourceId, message], handle.socketPath);
       sleepSync(300);
       run(["pane", "send-keys", handle.resourceId, "enter"], handle.socketPath);

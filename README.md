@@ -65,7 +65,7 @@ Background task:
 }
 ```
 
-Terminal-backed calls accept `timeout_seconds` and `timeout_grace_seconds`. The defaults are 1800 and 300 seconds. After `timeout_seconds`, pi-task asks the child for a final report. It closes the pane only if no final result arrives during the additional `timeout_grace_seconds`, so the default hard deadline is 2100 seconds. The SDK backend keeps its existing one-shot behavior.
+Terminal-backed calls accept `timeout_seconds`, `timeout_grace_seconds`, and `timeout_send_escape`. The defaults are 1800 seconds, 300 seconds, and `true`. At the soft timeout, pi-task sends Escape before the wrap-up request so an open Pi permission or review dialog is cancelled. Tmux and HerdR support this key injection. Set `timeout_send_escape` to `false` to send only the existing wrap-up text and Enter. The pane closes only if no final result arrives during the grace period, so the default hard deadline is 2100 seconds. The SDK backend keeps its existing one-shot behavior.
 
 Durable specialist conversation:
 
@@ -152,6 +152,7 @@ Keep the parent responsible for orchestration decisions and final verification. 
 | `PI_TASK_POLL_MS` | Background poll interval (default 2000). |
 | `PI_TASK_BACKEND` | `auto` (default), `herdr`, `tmux`, or `sdk`. `auto` prefers HerdR only when Pi is already running inside an active HerdR pane, then tmux, then SDK. |
 | `PI_TASK_TMUX_SPLIT` | Tmux pane orientation: `auto` (default), `horizontal` (side-by-side), or `vertical` (top/bottom). Auto uses a horizontal split when pane width is at least twice its height; otherwise it uses a vertical split. |
+| `PI_TASK_TIMEOUT_SEND_ESCAPE` | Send Escape before a terminal task's soft-timeout wrap-up request. `1` enables it (default); `0` disables it. The per-task `timeout_send_escape` argument takes precedence. Other values reject the task call. |
 
 For HerdR, install and launch HerdR separately, then start Pi inside a managed pane. pi-task requires `HERDR_ENV=1`, `HERDR_PANE_ID`, and an absolute `HERDR_SOCKET_PATH`; it never starts or installs HerdR. Each HerdR-backed task creates its own unfocused HerdR workspace in the task's working directory, so its agent pane never splits the parent workspace. `herdr integration install pi` is optional and improves lifecycle labels, but task completion still comes from Pi session JSONL. Persisted tasks validate both the socket path and HerdR terminal identity before reading, steering, or closing a pane.
 

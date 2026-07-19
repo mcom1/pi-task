@@ -18,6 +18,7 @@ export interface BackgroundTask {
   startedAt: number;
   timeoutMs?: number;
   timeoutGraceMs?: number;
+  timeoutSendEscape?: boolean;
   wrapUpRequestedAt?: number;
   toolUses: number;
   turns: number;
@@ -41,6 +42,7 @@ export interface RegistryEntry {
   startedAt: number;
   timeoutMs?: number;
   timeoutGraceMs?: number;
+  timeoutSendEscape?: boolean;
   wrapUpRequestedAt?: number;
   handle?: TerminalHandle;
   /** Legacy persisted field accepted by migration only. */

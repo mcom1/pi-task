@@ -56,7 +56,11 @@ export interface TerminalBackend {
   available(): Promise<boolean>;
   launch(input: TerminalLaunchInput): Promise<TerminalHandle>;
   isAlive(handle: TerminalHandle): Promise<boolean>;
-  send(handle: TerminalHandle, message: string): Promise<void>;
+  send(
+    handle: TerminalHandle,
+    message: string,
+    options?: { sendEscape?: boolean },
+  ): Promise<void>;
   readTail(handle: TerminalHandle, lines: number): Promise<string>;
   close(handle: TerminalHandle): Promise<void>;
 }
@@ -234,9 +238,12 @@ export function createTmuxTerminalBackend(
       }
     },
 
-    async send(handle, message) {
+    async send(handle, message, sendOptions) {
       if (handle.backend !== "tmux") {
         throw new Error("tmux backend cannot send to a non-tmux handle");
+      }
+      if (sendOptions?.sendEscape) {
+        await runner.run("tmux", ["send-keys", "-t", handle.resourceId, "Escape"]);
       }
       await runner.run("tmux", [
         "send-keys",

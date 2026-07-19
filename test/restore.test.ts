@@ -114,6 +114,7 @@ describe("restoreActiveBackgroundTasks", () => {
       description: "restore timeout state",
       timeoutMs: 2500,
       timeoutGraceMs: 750,
+      timeoutSendEscape: false,
       wrapUpRequestedAt: 1234,
     }]);
 
@@ -122,7 +123,45 @@ describe("restoreActiveBackgroundTasks", () => {
 
     assert.equal(backgroundTasks.get("task-timeout")?.timeoutMs, 2500);
     assert.equal(backgroundTasks.get("task-timeout")?.timeoutGraceMs, 750);
+    assert.equal(backgroundTasks.get("task-timeout")?.timeoutSendEscape, false);
     assert.equal(backgroundTasks.get("task-timeout")?.wrapUpRequestedAt, 1234);
+  });
+
+  it("uses timeout escape environment configuration for legacy entries", () => {
+    const piDir = makePiDir();
+    const entries = [
+      { id: "legacy", timeoutSendEscape: undefined },
+      { id: "explicit-true", timeoutSendEscape: true },
+      { id: "explicit-false", timeoutSendEscape: false },
+    ].map(({ id, timeoutSendEscape }) => {
+      const taskDir = join(piDir, "artifacts", "sessions", id);
+      writeSession(taskDir, `task-${id}`);
+      return {
+        id,
+        dir: taskDir,
+        sessionName: `task-${id}`,
+        startedAt: Date.now() - 1000,
+        handle: { backend: "tmux", resourceId: `%${id}` },
+        agentType: "general",
+        description: `restore ${id}`,
+        ...(timeoutSendEscape === undefined ? {} : { timeoutSendEscape }),
+      };
+    });
+    writeJson(join(piDir, "task-registry.json"), entries);
+
+    const previous = process.env.PI_TASK_TIMEOUT_SEND_ESCAPE;
+    process.env.PI_TASK_TIMEOUT_SEND_ESCAPE = "0";
+    try {
+      const backgroundTasks = new Map();
+      restoreActiveBackgroundTasks(piDir, backgroundTasks, () => true);
+
+      assert.equal(backgroundTasks.get("legacy")?.timeoutSendEscape, false);
+      assert.equal(backgroundTasks.get("explicit-true")?.timeoutSendEscape, true);
+      assert.equal(backgroundTasks.get("explicit-false")?.timeoutSendEscape, false);
+    } finally {
+      if (previous === undefined) delete process.env.PI_TASK_TIMEOUT_SEND_ESCAPE;
+      else process.env.PI_TASK_TIMEOUT_SEND_ESCAPE = previous;
+    }
   });
 
   it("marks non-terminal entries failed when their pane is gone", () => {

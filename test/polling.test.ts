@@ -283,13 +283,15 @@ function makeDeps(
     startedAt: Date.now(),
     timeoutMs: 15,
     timeoutGraceMs: 150,
+    timeoutSendEscape: true,
   });
   let warningCount = 0;
   let completedPhase = "";
   const stop = startBackgroundPolling(makeDeps({
     backgroundTasks,
-    requestWrapUp: (_task: any, instruction: string) => {
+    requestWrapUp: (_task: any, instruction: string, sendEscape: boolean) => {
       warningCount += 1;
+      assert.equal(sendEscape, true, `${t}: Escape enabled`);
       assert.match(instruction, /stop starting new work/i, t);
       for (const section of ["completed work", "changed files", "verification", "remaining work", "blockers", "blocker reasons"]) {
         assert.match(instruction.toLowerCase(), new RegExp(section), `${t}: ${section}`);
@@ -308,6 +310,37 @@ function makeDeps(
   stop();
   assert.equal(warningCount, 1, `${t}: warning count`);
   assert.equal(completedPhase, "done", `${t}: phase`);
+}
+
+{
+  const t = "background soft timeout preserves wrap-up delivery when Escape is disabled";
+  const backgroundTasks = new Map<any, any>();
+  backgroundTasks.set("t1", {
+    dir: "/tmp/pi-task-artifacts",
+    sessionName: "s1",
+    paneId: "%1",
+    originalPane: null,
+    startedAt: Date.now() - 20,
+    timeoutMs: 10,
+    timeoutGraceMs: 100,
+    timeoutSendEscape: false,
+  });
+  let requested = false;
+  const stop = startBackgroundPolling(makeDeps({
+    backgroundTasks,
+    requestWrapUp: (_task: any, instruction: string, sendEscape: boolean) => {
+      assert.equal(sendEscape, false, `${t}: Escape disabled`);
+      assert.match(instruction, /soft timeout/i, t);
+      requested = true;
+    },
+    checkTaskCompletion: async () => requested
+      ? { status: "completed", content: "done" }
+      : { status: "running", content: "" },
+  }), 5);
+
+  await sleep(50);
+  stop();
+  assert.equal(requested, true, `${t}: wrap-up requested`);
 }
 
 {

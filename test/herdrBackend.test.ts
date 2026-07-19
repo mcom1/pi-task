@@ -274,6 +274,15 @@ test("sync steering accepts HerdR mutation commands with empty stdout", () => {
     ["pane", "send-text", "w1:p2", "follow up"],
     ["pane", "send-keys", "w1:p2", "enter"],
   ]);
+
+  calls.length = 0;
+  control.send(handle, "wrap up", { sendEscape: true });
+  assert.deepEqual(calls, [
+    ["pane", "get", "w1:p2"],
+    ["pane", "send-keys", "w1:p2", "escape"],
+    ["pane", "send-text", "w1:p2", "wrap up"],
+    ["pane", "send-keys", "w1:p2", "enter"],
+  ]);
 });
 
 test("sync cleanup closes a task-owned HerdR workspace without a live pane", () => {

@@ -35,6 +35,41 @@ test("tmux terminal backend preserves the launch handle contract", async () => {
   ]]);
 });
 
+test("tmux terminal backend sends Escape before wrap-up text and Enter", async () => {
+  const calls: string[][] = [];
+  const backend = createTmuxTerminalBackend({
+    run: async (_command, args) => {
+      calls.push([...args]);
+      return { stdout: "", stderr: "", exitCode: 0 };
+    },
+  });
+
+  await backend.send(
+    { backend: "tmux", resourceId: "%9" },
+    "wrap up",
+    { sendEscape: true },
+  );
+
+  assert.deepEqual(calls, [
+    ["send-keys", "-t", "%9", "Escape"],
+    ["send-keys", "-t", "%9", "wrap up", "Enter"],
+  ]);
+});
+
+test("tmux terminal backend leaves wrap-up delivery unchanged when Escape is disabled", async () => {
+  const calls: string[][] = [];
+  const backend = createTmuxTerminalBackend({
+    run: async (_command, args) => {
+      calls.push([...args]);
+      return { stdout: "", stderr: "", exitCode: 0 };
+    },
+  });
+
+  await backend.send({ backend: "tmux", resourceId: "%9" }, "wrap up");
+
+  assert.deepEqual(calls, [["send-keys", "-t", "%9", "wrap up", "Enter"]]);
+});
+
 test("tmux terminal backend auto-detects from current pane geometry", async () => {
   const calls: string[][] = [];
   const backend = createTmuxTerminalBackend({

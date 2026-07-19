@@ -7,6 +7,7 @@ import {
 import { hasAgentFinished } from "../session-text.js";
 import { getExitSentinelPath } from "../subagent/exitSentinel.js";
 import { killAgentPane, paneExists } from "../subagent/tmux.js";
+import { normalizeTimeoutSendEscape } from "../task-timeouts.js";
 import type { BackgroundTask, RegistryEntry } from "../types.js";
 
 export function restoreActiveBackgroundTasks(
@@ -113,6 +114,7 @@ export function restoreActiveBackgroundTasks(
       startedAt: entry.startedAt,
       timeoutMs: entry.timeoutMs,
       timeoutGraceMs: entry.timeoutGraceMs,
+      timeoutSendEscape: normalizeTimeoutSendEscape(entry.timeoutSendEscape, process.env),
       wrapUpRequestedAt: entry.wrapUpRequestedAt,
       toolUses: 0,
       turns: 0,

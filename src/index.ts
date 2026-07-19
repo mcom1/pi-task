@@ -171,8 +171,10 @@ export default function (pi: ExtensionAPI) {
       completeTask,
       TASK_TIMEOUT_MS,
       TASK_TIMEOUT_GRACE_MS,
-      requestWrapUp: (task, instruction) =>
-        steerRunningBackgroundTask(task.paneId, instruction, task.handle),
+      requestWrapUp: (task, instruction, sendEscape) =>
+        steerRunningBackgroundTask(task.paneId, instruction, task.handle, {
+          sendEscape,
+        }),
       persistWrapUpRequested: (id, requestedAt) =>
         markRegistryWrapUpRequested(piDir, id, requestedAt),
       MAX_POLL_ERRORS,
@@ -236,11 +238,16 @@ export default function (pi: ExtensionAPI) {
         };
       }
       const agent = preflight.agent;
-      let taskTimeouts: { timeoutMs: number; timeoutGraceMs: number };
+      let taskTimeouts: {
+        timeoutMs: number;
+        timeoutGraceMs: number;
+        timeoutSendEscape: boolean;
+      };
       try {
         taskTimeouts = normalizeTaskTimeouts(
           params.timeout_seconds,
           params.timeout_grace_seconds,
+          params.timeout_send_escape,
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -333,7 +340,17 @@ export default function (pi: ExtensionAPI) {
           const timeoutGraceMs = params.timeout_grace_seconds === undefined
             ? entry.timeoutGraceMs ?? taskTimeouts.timeoutGraceMs
             : taskTimeouts.timeoutGraceMs;
-          resetRegistryTaskTimeout(piDir, id, resumedAt, timeoutMs, timeoutGraceMs);
+          const timeoutSendEscape = params.timeout_send_escape === undefined
+            ? entry.timeoutSendEscape ?? taskTimeouts.timeoutSendEscape
+            : taskTimeouts.timeoutSendEscape;
+          resetRegistryTaskTimeout(
+            piDir,
+            id,
+            resumedAt,
+            timeoutMs,
+            timeoutGraceMs,
+            timeoutSendEscape,
+          );
           const bgtask: BackgroundTask = {
             dir: artifactsDir,
             agentType: entry.agentType,
@@ -347,6 +364,7 @@ export default function (pi: ExtensionAPI) {
             startedAt: resumedAt,
             timeoutMs,
             timeoutGraceMs,
+            timeoutSendEscape,
             toolUses: 0,
             turns: 0,
             conversationId,
@@ -454,7 +472,17 @@ export default function (pi: ExtensionAPI) {
           const timeoutGraceMs = params.timeout_grace_seconds === undefined
             ? entry.timeoutGraceMs ?? taskTimeouts.timeoutGraceMs
             : taskTimeouts.timeoutGraceMs;
-          resetRegistryTaskTimeout(piDir, id, resumedAt, timeoutMs, timeoutGraceMs);
+          const timeoutSendEscape = params.timeout_send_escape === undefined
+            ? entry.timeoutSendEscape ?? taskTimeouts.timeoutSendEscape
+            : taskTimeouts.timeoutSendEscape;
+          resetRegistryTaskTimeout(
+            piDir,
+            id,
+            resumedAt,
+            timeoutMs,
+            timeoutGraceMs,
+            timeoutSendEscape,
+          );
           const bgtask: BackgroundTask = {
             dir: artifactsDir,
             agentType: entry.agentType,
@@ -468,6 +496,7 @@ export default function (pi: ExtensionAPI) {
             startedAt: resumedAt,
             timeoutMs,
             timeoutGraceMs,
+            timeoutSendEscape,
             toolUses: 0,
             turns: 0,
             conversationId: entry.conversationId,
@@ -648,6 +677,7 @@ export default function (pi: ExtensionAPI) {
             startedAt: Date.now(),
             timeoutMs: taskTimeouts.timeoutMs,
             timeoutGraceMs: taskTimeouts.timeoutGraceMs,
+            timeoutSendEscape: taskTimeouts.timeoutSendEscape,
             toolUses: 0,
             turns: 0,
             conversationId,
@@ -851,7 +881,12 @@ export default function (pi: ExtensionAPI) {
               artifactsDir,
               taskId: id,
               requestWrapUp: () => {
-                steerRunningBackgroundTask(paneId, TASK_WRAP_UP_INSTRUCTION, handle);
+                steerRunningBackgroundTask(
+                  paneId,
+                  TASK_WRAP_UP_INSTRUCTION,
+                  handle,
+                  { sendEscape: taskTimeouts.timeoutSendEscape },
+                );
               },
               exitSentinelPath: selectedBackend === "herdr" ? exitSentinelPath : undefined,
               resourceExists: selectedBackend === "herdr"
@@ -947,6 +982,7 @@ export default function (pi: ExtensionAPI) {
         startedAt: Date.now(),
         timeoutMs: taskTimeouts.timeoutMs,
         timeoutGraceMs: taskTimeouts.timeoutGraceMs,
+        timeoutSendEscape: taskTimeouts.timeoutSendEscape,
         toolUses: 0,
         turns: 0,
         conversationId,
@@ -965,6 +1001,7 @@ export default function (pi: ExtensionAPI) {
         startedAt: bgtask.startedAt,
         timeoutMs: bgtask.timeoutMs,
         timeoutGraceMs: bgtask.timeoutGraceMs,
+        timeoutSendEscape: bgtask.timeoutSendEscape,
         paneId,
         handle,
         piDir,

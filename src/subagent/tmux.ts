@@ -117,7 +117,14 @@ export function killAgentPane(paneId: string, originalPane?: string | null): voi
 }
 
 /** Inject text into a running subagent pane (steer / follow-up). */
-export function tmuxSteerPane(paneId: string, message: string): void {
+export function tmuxSteerPane(
+  paneId: string,
+  message: string,
+  options: { sendEscape?: boolean } = {},
+): void {
+  if (options.sendEscape) {
+    tmuxCmd(["send-keys", "-t", paneId, "Escape"]);
+  }
   const bufferName = `pi-task-steer-${process.pid}-${Date.now()}`;
   try {
     execFileSync("tmux", ["load-buffer", "-b", bufferName, "-"], {

@@ -53,5 +53,9 @@ export function taskParametersSchema() {
       exclusiveMinimum: 0,
       maximum: MAX_TASK_TIMEOUT_GRACE_SECONDS,
     })),
+    timeout_send_escape: Type.Optional(Type.Boolean({
+      description: "Send Escape before the soft-timeout wrap-up request to cancel an open permission or review dialog.",
+      default: true,
+    })),
   });
 }

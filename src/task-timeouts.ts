@@ -20,10 +20,28 @@ function normalizeSeconds(
   return seconds;
 }
 
+export function normalizeTimeoutSendEscape(
+  value: unknown,
+  env: NodeJS.ProcessEnv,
+): boolean {
+  if (value !== undefined) {
+    if (typeof value !== "boolean") {
+      throw new TypeError("timeout_send_escape must be a boolean");
+    }
+    return value;
+  }
+  const configured = env.PI_TASK_TIMEOUT_SEND_ESCAPE;
+  if (configured === undefined || configured === "1") return true;
+  if (configured === "0") return false;
+  throw new RangeError("PI_TASK_TIMEOUT_SEND_ESCAPE must be 0 or 1");
+}
+
 export function normalizeTaskTimeouts(
   timeoutSeconds: unknown,
   timeoutGraceSeconds: unknown,
-): { timeoutMs: number; timeoutGraceMs: number } {
+  timeoutSendEscape: unknown = undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): { timeoutMs: number; timeoutGraceMs: number; timeoutSendEscape: boolean } {
   return {
     timeoutMs: normalizeSeconds(
       timeoutSeconds,
@@ -37,6 +55,7 @@ export function normalizeTaskTimeouts(
       MAX_TASK_TIMEOUT_GRACE_SECONDS,
       "timeout_grace_seconds",
     ) * 1_000,
+    timeoutSendEscape: normalizeTimeoutSendEscape(timeoutSendEscape, env),
   };
 }
 

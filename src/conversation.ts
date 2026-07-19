@@ -130,6 +130,7 @@ export function resetRegistryTaskTimeout(
   startedAt: number,
   timeoutMs: number,
   timeoutGraceMs: number,
+  timeoutSendEscape: boolean,
 ): void {
   const entries = readRegistry(piDir);
   const entry = entries.find((candidate) => candidate.id === taskId);
@@ -137,6 +138,7 @@ export function resetRegistryTaskTimeout(
   entry.startedAt = startedAt;
   entry.timeoutMs = timeoutMs;
   entry.timeoutGraceMs = timeoutGraceMs;
+  entry.timeoutSendEscape = timeoutSendEscape;
   delete entry.wrapUpRequestedAt;
   writeRegistry(piDir, entries);
 }

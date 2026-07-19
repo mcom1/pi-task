@@ -11,12 +11,13 @@ export function steerRunningBackgroundTask(
 	paneId: string | null | undefined,
 	prompt: string,
 	handle?: TerminalHandle,
+	options: { sendEscape?: boolean } = {},
 ): SteerResult {
 	const text = prompt.trim();
 	if (!text) return { ok: false, reason: "no_pane" };
 	if (handle?.backend === "herdr") {
 		try {
-			createSyncHerdrControl().send(handle, text);
+			createSyncHerdrControl().send(handle, text, options);
 			return { ok: true };
 		} catch {
 			return { ok: false, reason: "inject_failed" };
@@ -25,7 +26,7 @@ export function steerRunningBackgroundTask(
 	if (!paneId) return { ok: false, reason: "no_pane" };
 	if (!paneExists(paneId)) return { ok: false, reason: "pane_dead" };
 	try {
-		tmuxSteerPane(paneId, text);
+		tmuxSteerPane(paneId, text, options);
 		return { ok: true };
 	} catch {
 		return { ok: false, reason: "inject_failed" };
